@@ -1,6 +1,8 @@
 export interface ApiConfig {
   host: string;
   port: number;
+  /** When set, project paths must resolve inside this directory (CLAUDE.md §4.2). */
+  scanRoot?: string;
 }
 
 function parsePort(raw: string | undefined, fallback: number): number {
@@ -16,5 +18,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   return {
     host: env.API_HOST || '127.0.0.1',
     port: parsePort(env.API_PORT, 3000),
+    scanRoot: env.VULNTRACE_SCAN_ROOT || undefined,
   };
 }

@@ -29,16 +29,18 @@ model Project {
 }
 
 model ScanJob {
-  id            String    @id @default(uuid())
-  projectId     String    @map("project_id")
-  state         ScanState @default(PENDING)
-  startedAt     DateTime  @default(now()) @map("started_at")
-  finishedAt    DateTime? @map("finished_at")
-  failureReason String?   @map("failure_reason")
+  id                     String    @id @default(uuid())
+  projectId              String    @map("project_id")
+  state                  ScanState @default(PENDING)
+  startedAt              DateTime  @default(now()) @map("started_at")
+  finishedAt             DateTime? @map("finished_at")
+  failureReason          String?   @map("failure_reason")
   /// Per-stage status and failure reasons (ScanStageResult[]).
-  stageResults  Json      @default("[]") @map("stage_results")
+  stageResults           Json      @default("[]") @map("stage_results")
+  /// Dependencies whose version could not be resolved (UnresolvedDependency[]) — evidence, not just a count.
+  unresolvedDependencies Json      @default("[]") @map("unresolved_dependencies")
 
-  project                Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project                Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectDependencies    ProjectDependency[]
   projectVulnerabilities ProjectVulnerability[]
   sourceUsages           SourceUsage[]
@@ -65,14 +67,16 @@ model Dependency {
 }
 
 model ProjectDependency {
-  id           String  @id @default(uuid())
-  scanId       String  @map("scan_id")
-  dependencyId String  @map("dependency_id")
+  id           String   @id @default(uuid())
+  scanId       String   @map("scan_id")
+  dependencyId String   @map("dependency_id")
   scope        String
   direct       Boolean
   /// Evidence of where the dependency was found, e.g. "pom.xml" or "dependency-tree".
   source       String
-  sourcePath   String? @map("source_path")
+  sourcePath   String?  @map("source_path")
+  /// Transitive-only: purl chain that pulled this dependency in, nearest first.
+  introducedBy String[] @default([]) @map("introduced_by")
 
   scan            ScanJob                @relation(fields: [scanId], references: [id], onDelete: Cascade)
   dependency      Dependency             @relation(fields: [dependencyId], references: [id])
@@ -83,14 +87,14 @@ model ProjectDependency {
 }
 
 model Vulnerability {
-  id         String  @id @default(uuid())
+  id         String   @id @default(uuid())
   /// Provider identifier (CVE / GHSA / OSV id).
-  sourceId   String  @unique @map("source_id")
+  sourceId   String   @unique @map("source_id")
   aliases    String[]
   summary    String
   severity   String
-  cvssVector String? @map("cvss_vector")
-  references Json    @default("[]")
+  cvssVector String?  @map("cvss_vector")
+  references Json     @default("[]")
 
   projectVulnerabilities ProjectVulnerability[]
 

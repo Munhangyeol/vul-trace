@@ -3,7 +3,7 @@ import { createContainer } from './container.js';
 import { buildServer } from './server.js';
 
 const config = loadConfig();
-const app = buildServer(createContainer(), { logger: true });
+const app = buildServer(createContainer({ scanRoot: config.scanRoot }), { logger: true });
 
 try {
   await app.listen({ host: config.host, port: config.port });

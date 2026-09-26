@@ -1,9 +1,12 @@
+import type { UnresolvedDependency } from './dependency.js';
+
 export type ScanState = 'PENDING' | 'RUNNING' | 'PARTIAL' | 'COMPLETED' | 'FAILED';
 
 /** Pipeline stages in execution order (CLAUDE.md §1 Core Flow). */
 export type ScanStage =
   | 'PROJECT_DETECTION'
   | 'DEPENDENCY'
+  | 'DEPENDENCY_TREE'
   | 'SBOM'
   | 'VULNERABILITY'
   | 'SOURCE_USAGE'
@@ -35,4 +38,6 @@ export interface ScanJob {
   finishedAt?: string;
   failureReason?: string;
   stages: ScanStageResult[];
+  /** Dependencies whose version could not be resolved from pom.xml/tree — evidence, not just a count. */
+  unresolvedDependencies: UnresolvedDependency[];
 }

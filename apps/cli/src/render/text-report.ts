@@ -1,6 +1,6 @@
+import { basename } from 'node:path';
 import type { ScanReport } from '@vulntrace/core';
 import type { ScanStage } from '@vulntrace/shared';
-import { basename } from 'node:path';
 
 function stageNote(report: ScanReport, stage: ScanStage): string | undefined {
   const result = report.stages.find((s) => s.stage === stage);
@@ -19,17 +19,45 @@ export function renderSummary(report: ScanReport): string {
       (s) => `  ${s.stage.padEnd(18)} ${s.status}${s.reason ? `  (${s.reason})` : ''}`,
     ),
   ];
+  if (report.warnings.length > 0) {
+    lines.push('', 'Warnings:', ...report.warnings.map((w) => `  - ${w}`));
+  }
   return lines.join('\n');
 }
 
 export function renderDependencies(report: ScanReport): string {
+  const detectionNote = stageNote(report, 'PROJECT_DETECTION');
+  if (detectionNote) return `Dependencies: unavailable (${detectionNote})`;
+
   const note = stageNote(report, 'DEPENDENCY');
   if (note) return `Dependencies: unavailable (${note})`;
 
-  const rows = report.dependencies.map(({ coordinate: c }) =>
-    [c.direct ? 'direct    ' : 'transitive', c.scope.padEnd(8), c.purl].join('  '),
+  const rows = report.dependencies.map(({ coordinate: c, source }) =>
+    [
+      (c.direct ? 'direct' : 'transitive').padEnd(10),
+      c.scope.padEnd(8),
+      c.purl.padEnd(50),
+      `(${source.kind})`,
+    ].join('  '),
   );
-  return [`Dependencies: ${report.dependencies.length}`, ...rows].join('\n');
+  const lines = [`Dependencies: ${report.dependencies.length}`, ...rows];
+
+  const treeNote = stageNote(report, 'DEPENDENCY_TREE');
+  if (treeNote) lines.push(`Transitive resolution: ${treeNote}`);
+
+  if (report.unresolvedDependencies.length > 0) {
+    const unresolvedRows = report.unresolvedDependencies.map((u) =>
+      [
+        'direct'.padEnd(10),
+        u.scope.padEnd(8),
+        `${u.groupId}:${u.artifactId}${u.rawVersion ? `@${u.rawVersion}` : ''}`.padEnd(50),
+        `${u.reason} (not resolved)`,
+      ].join('  '),
+    );
+    lines.push(`Unresolved: ${report.unresolvedDependencies.length}`, ...unresolvedRows);
+  }
+
+  return lines.join('\n');
 }
 
 export function renderVulnerabilities(report: ScanReport): string {

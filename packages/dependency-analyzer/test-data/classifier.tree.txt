@@ -1,0 +1,2 @@
+com.example:demo:jar:1.0.0
+\- org.example:lib:test-jar:tests:2.0.0:test

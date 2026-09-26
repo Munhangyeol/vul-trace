@@ -3,8 +3,13 @@ import type {
   ScanStage,
   ScanStageResult,
   ScanState,
+  UnresolvedDependency,
 } from '@vulntrace/shared';
-import type { DependencyAnalyzer } from '@vulntrace/dependency-analyzer';
+import type {
+  DependencyAnalysisOptions,
+  DependencyAnalyzer,
+  MavenProjectMetadata,
+} from '@vulntrace/dependency-analyzer';
 import type { ScanLogger } from './logging/ScanLogger.js';
 
 export interface ScanReport {
@@ -13,7 +18,10 @@ export interface ScanReport {
   startedAt: string;
   finishedAt: string;
   stages: ScanStageResult[];
+  project?: MavenProjectMetadata;
   dependencies: ProjectDependency[];
+  unresolvedDependencies: UnresolvedDependency[];
+  warnings: string[];
 }
 
 export interface ScanOrchestratorDeps {
@@ -31,6 +39,10 @@ const PENDING_STAGES: ReadonlyArray<readonly [ScanStage, string]> = [
   ['REACHABILITY', 'Phase 6'],
   ['RISK', 'Phase 7'],
 ];
+
+const PROJECT_DETECTION_ERROR_CODES = new Set(['PROJECT_NOT_FOUND', 'UNSUPPORTED_PROJECT']);
+
+const DEFAULT_DEPENDENCY_OPTIONS: DependencyAnalysisOptions = { allowMaven: false };
 
 /**
  * Derives the overall scan state from stage results (CLAUDE.md §19).
@@ -51,23 +63,65 @@ export class ScanOrchestrator {
     this.now = deps.now ?? (() => new Date());
   }
 
-  async run(projectPath: string): Promise<ScanReport> {
+  async run(
+    projectPath: string,
+    options: DependencyAnalysisOptions = DEFAULT_DEPENDENCY_OPTIONS,
+  ): Promise<ScanReport> {
     const { logger } = this.deps;
     const startedAt = this.now().toISOString();
     const stages: ScanStageResult[] = [];
+    let project: MavenProjectMetadata | undefined;
     let dependencies: ProjectDependency[] = [];
+    let unresolvedDependencies: UnresolvedDependency[] = [];
+    let warnings: string[] = [];
 
     logger.info('SCAN', `scan started: ${projectPath}`);
 
-    const dependencyResult = await this.deps.dependencyAnalyzer.analyze(projectPath);
-    if (dependencyResult.ok) {
-      dependencies = dependencyResult.value.dependencies;
-      stages.push({ stage: 'DEPENDENCY', status: 'SUCCEEDED' });
-      logger.info('DEPENDENCY', `${dependencies.length} dependencies found`);
+    const analysis = await this.deps.dependencyAnalyzer.analyze(projectPath, options);
+
+    if (!analysis.ok) {
+      const reason = `${analysis.error.code}: ${analysis.error.message}`;
+      const stage: ScanStage = PROJECT_DETECTION_ERROR_CODES.has(analysis.error.code)
+        ? 'PROJECT_DETECTION'
+        : 'DEPENDENCY';
+      stages.push({ stage, status: 'FAILED', reason });
+      logger.error(stage === 'PROJECT_DETECTION' ? 'PROJECT' : 'DEPENDENCY', reason);
     } else {
-      const reason = `${dependencyResult.error.code}: ${dependencyResult.error.message}`;
-      stages.push({ stage: 'DEPENDENCY', status: 'FAILED', reason });
-      logger.error('DEPENDENCY', reason);
+      const result = analysis.value;
+      project = result.project;
+      dependencies = result.dependencies;
+      unresolvedDependencies = result.unresolvedDependencies;
+      warnings = result.warnings;
+
+      stages.push({ stage: 'PROJECT_DETECTION', status: 'SUCCEEDED' });
+      logger.info(
+        'PROJECT',
+        `Maven project detected: ${project.groupId}:${project.artifactId}:${project.version}`,
+      );
+
+      stages.push({ stage: 'DEPENDENCY', status: 'SUCCEEDED' });
+      logger.info(
+        'DEPENDENCY',
+        `${dependencies.length} dependencies resolved, ${unresolvedDependencies.length} unresolved`,
+      );
+
+      if (result.transitive.status === 'RESOLVED') {
+        stages.push({ stage: 'DEPENDENCY_TREE', status: 'SUCCEEDED' });
+      } else if (result.transitive.status === 'SKIPPED') {
+        stages.push({
+          stage: 'DEPENDENCY_TREE',
+          status: 'SKIPPED',
+          reason: result.transitive.reason,
+        });
+        logger.info('DEPENDENCY', `transitive resolution skipped: ${result.transitive.reason}`);
+      } else {
+        stages.push({
+          stage: 'DEPENDENCY_TREE',
+          status: 'FAILED',
+          reason: result.transitive.reason,
+        });
+        logger.error('DEPENDENCY', `transitive resolution failed: ${result.transitive.reason}`);
+      }
     }
 
     for (const [stage, phase] of PENDING_STAGES) {
@@ -83,7 +137,10 @@ export class ScanOrchestrator {
       startedAt,
       finishedAt: this.now().toISOString(),
       stages,
+      project,
       dependencies,
+      unresolvedDependencies,
+      warnings,
     };
   }
 }

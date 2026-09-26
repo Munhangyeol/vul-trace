@@ -1,0 +1,4 @@
+com.example:demo:jar:1.0.0
++- org.example:good:jar:1.0.0:compile
++- this line does not match the expected format
+\- org.example:another:jar:2.0.0:compile
