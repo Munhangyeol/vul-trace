@@ -21,7 +21,10 @@ export function registerDependenciesCommand(
   addMavenOptions(command);
 
   command.action(async (path: string, options: DependenciesCliOptions) => {
-    const report = await runScan(orchestrator, path, parseMavenOptions(options));
+    const report = await runScan(orchestrator, path, {
+      ...parseMavenOptions(options),
+      checkVulnerabilities: false,
+    });
     console.log(options.json ? JSON.stringify(report, null, 2) : renderDependencies(report));
   });
 }

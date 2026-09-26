@@ -27,21 +27,26 @@ vulnerable API reachable→ 엔드포인트 → ... → 호출 위치 콜 경로
 ## 2. 현재 상태 (2026-09-26 기준)
 
 **Phase 0 (스캐폴딩) 완료** — 커밋 `1470308 feat: scaffold TypeScript monorepo for VulnTrace MVP`
+**Phase 1 (Maven 의존성 분석) 완료** — 커밋 `3cce848 feat: implement Phase 1 Maven dependency analysis`
+**Phase 2 (SBOM + OSV 취약점 매칭) 완료**
 
 | 영역 | 상태 |
 |---|---|
 | 모노레포 | pnpm workspace, TS strict, ESM, tsc project references |
-| `packages/shared` | 도메인 타입 + `Result`/`AnalysisError` 모델 정의 |
-| 분석 패키지 7종 | 인터페이스 + `NotImplementedError` 스텁 (`purl.ts`만 구현 + 테스트) |
-| `packages/core` | `ScanOrchestrator`, ports, `ScanLogger` 골격 |
-| `apps/cli` | `scan/dependencies/vulnerabilities/report` 커맨드 골격 |
-| `apps/api` | Fastify + `/api/health` + 라우트 스텁 |
-| `apps/web` | Vite + Router + TanStack Query + 4개 페이지 골격 |
-| `prisma/` | `schema.prisma` 선언, 마이그레이션 미적용 |
-| `fixtures/` | Spring 픽스처 4종 (`commons-text:1.9`, CVE-2022-42889 기준) |
+| `packages/shared` | 도메인 타입 + `Result`/`AnalysisError` 모델, `VulnerabilityCoverage` 정의 |
+| `packages/dependency-analyzer` | pom.xml 파싱(속성 치환/dependencyManagement), `mvn dependency:tree` 실행/파싱, 병합 — 구현 완료 |
+| `packages/sbom` | `CycloneDxBuilder` — CycloneDX 1.5 SBOM 생성 구현 완료 |
+| `packages/vulnerability` | `OsvVulnerabilityProvider` — OSV querybatch/vulns 조회, CVSS v3 계산, 심각도 매핑, fixed version 추출 구현 완료 |
+| `packages/source-analyzer`/`spring-analyzer`/`reachability`/`risk` | 인터페이스 + `NotImplementedError` 스텁 (Phase 4~7 예정) |
+| `packages/core` | `ScanOrchestrator`가 PROJECT_DETECTION → DEPENDENCY → DEPENDENCY_TREE → SBOM → VULNERABILITY까지 연결 |
+| `apps/cli` | `scan/dependencies/vulnerabilities/report` 구현 완료 (`--allow-maven`, `--skip-vulnerabilities`, `--sbom`) |
+| `apps/api` | 프로젝트/스캔/의존성/취약점/finding 라우트 구현 완료 (Prisma 저장) |
+| `apps/web` | Vite + Router + TanStack Query + 4개 페이지 골격 (Phase 3 예정) |
+| `prisma/` | 마이그레이션 2개 적용 (`init`, `phase2_vulnerability_evidence`) |
+| `fixtures/` | Spring 픽스처 4종 (`commons-text:1.9`, CVE-2022-42889 기준). `spring-vulnerable-used`에 pom 파싱 경로 검증용 `guava`/`jackson-databind`/`commons-io` 추가 |
 | 품질 도구 | ESLint, Prettier, Vitest, husky + commitlint |
 
-**다음 작업: Phase 1 — `MavenDependencyAnalyzer` 구현**
+**다음 작업: Phase 3 — CLI 리포트 + React 대시보드 (DB 연동)**
 
 ---
 
@@ -49,9 +54,9 @@ vulnerable API reachable→ 엔드포인트 → ... → 호출 위치 콜 경로
 
 ```text
 Phase 0  스캐폴딩                          ✅ 완료
-Phase 1  Maven 의존성 분석                  ◀ 다음
-Phase 2  SBOM + OSV 취약점 매칭
-Phase 3  CLI 리포트 + React 대시보드 (DB 연동)
+Phase 1  Maven 의존성 분석                  ✅ 완료
+Phase 2  SBOM + OSV 취약점 매칭             ✅ 완료
+Phase 3  CLI 리포트 + React 대시보드 (DB 연동) ◀ 다음
 Phase 4  Java 소스 사용 분석                ── 여기까지 MVP 1 (§23)
 Phase 5  Spring 엔드포인트 분석
 Phase 6  도달성(Reachability) 분석

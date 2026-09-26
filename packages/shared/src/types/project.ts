@@ -30,6 +30,15 @@ export interface Project {
   createdAt: string;
 }
 
+export interface VulnerabilityCoverage {
+  /** Packages actually queried against OSV. */
+  checked: number;
+  /** Dependencies with no resolved version — can't be queried (CLAUDE.md §7 Phase 2 D6). */
+  notChecked: number;
+  /** Packages the OSV query itself failed for (querybatch entry or detail fetch). */
+  failed: number;
+}
+
 export interface ScanJob {
   id: string;
   projectId: string;
@@ -40,4 +49,5 @@ export interface ScanJob {
   stages: ScanStageResult[];
   /** Dependencies whose version could not be resolved from pom.xml/tree — evidence, not just a count. */
   unresolvedDependencies: UnresolvedDependency[];
+  vulnerabilityCoverage: VulnerabilityCoverage;
 }

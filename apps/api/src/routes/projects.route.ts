@@ -3,8 +3,8 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { Container } from '../container.js';
 import { toProjectDependencyDto } from '../dto/dependency.dto.js';
 import { toProjectDto } from '../dto/project.dto.js';
+import { toVulnerabilityFindingDto } from '../dto/vulnerability.dto.js';
 import { isWithinScanRoot } from '../lib/scanRoot.js';
-import { replyNotImplemented } from './notImplemented.js';
 
 interface CreateProjectBody {
   name: string;
@@ -80,8 +80,26 @@ export function createProjectRoutes(container: Container): FastifyPluginAsync {
       },
     );
 
-    app.get('/projects/:projectId/vulnerabilities', async (_req, reply) =>
-      replyNotImplemented(reply, 'GET /projects/:projectId/vulnerabilities'),
+    app.get<{ Params: { projectId: string } }>(
+      '/projects/:projectId/vulnerabilities',
+      async (request, reply) => {
+        const project = await container.projectRepository.findById(request.params.projectId);
+        if (!project) {
+          return reply.code(404).send({ error: 'NOT_FOUND', message: 'project not found' });
+        }
+
+        const scans = await container.scanRepository.listByProject(project.id);
+        const latestScan = scans[0];
+        if (!latestScan) {
+          return { findings: [], coverage: { checked: 0, notChecked: 0, failed: 0 } };
+        }
+
+        const findings = await container.findingRepository.listFindings(latestScan.id);
+        return {
+          findings: findings.map(toVulnerabilityFindingDto),
+          coverage: latestScan.vulnerabilityCoverage,
+        };
+      },
     );
   };
 }

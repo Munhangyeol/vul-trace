@@ -39,6 +39,8 @@ model ScanJob {
   stageResults           Json      @default("[]") @map("stage_results")
   /// Dependencies whose version could not be resolved (UnresolvedDependency[]) — evidence, not just a count.
   unresolvedDependencies Json      @default("[]") @map("unresolved_dependencies")
+  /// { checked, notChecked, failed } — how many resolved dependencies were actually queried against OSV.
+  vulnerabilityCoverage  Json      @default("{}") @map("vulnerability_coverage")
 
   project                Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectDependencies    ProjectDependency[]
@@ -87,14 +89,21 @@ model ProjectDependency {
 }
 
 model Vulnerability {
-  id         String   @id @default(uuid())
+  id             String    @id @default(uuid())
   /// Provider identifier (CVE / GHSA / OSV id).
-  sourceId   String   @unique @map("source_id")
-  aliases    String[]
-  summary    String
-  severity   String
-  cvssVector String?  @map("cvss_vector")
-  references Json     @default("[]")
+  sourceId       String    @unique @map("source_id")
+  aliases        String[]
+  summary        String
+  details        String?
+  severity       String
+  /// Which field the severity was derived from: CVSS_V3 | DATABASE_SPECIFIC | NONE.
+  severitySource String    @map("severity_source")
+  cvssVector     String?   @map("cvss_vector")
+  cvssScore      Float?    @map("cvss_score")
+  publishedAt    DateTime? @map("published_at")
+  /// OSV `modified` timestamp — used to decide whether a re-scan's record is newer.
+  modifiedAt     DateTime  @map("modified_at")
+  references     Json      @default("[]")
 
   projectVulnerabilities ProjectVulnerability[]
 
@@ -107,6 +116,11 @@ model ProjectVulnerability {
   projectDependencyId String   @map("project_dependency_id")
   vulnerabilityId     String   @map("vulnerability_id")
   fixedVersions       String[] @map("fixed_versions")
+  provider            String   @default("OSV")
+  queriedAt           DateTime @map("queried_at")
+  /// OSV affected[].ranges[] verbatim — the evidence for "why affected" (CLAUDE.md §6.2).
+  affectedRanges       Json     @default("[]") @map("affected_ranges")
+  affectedVersions     String[] @default([]) @map("affected_versions")
 
   scan              ScanJob            @relation(fields: [scanId], references: [id], onDelete: Cascade)
   projectDependency ProjectDependency  @relation(fields: [projectDependencyId], references: [id], onDelete: Cascade)

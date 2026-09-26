@@ -16,3 +16,9 @@ Vulnerable dependency used across fixtures: `org.apache.commons:commons-text:1.9
 
 Note: all fixtures inherit `spring-boot-starter-parent 3.5.6`. Findings against Spring's own
 transitive dependencies depend on the live OSV database and are not part of these expectations.
+
+`spring-vulnerable-used/pom.xml` additionally declares `guava` (version via a `${...}` property),
+`jackson-databind` (version via local `<dependencyManagement>`), and `commons-io` (a version range).
+These exercise Phase 1's non-Maven version-resolution paths and Phase 2's OSV matching against
+more than one resolved package; they are not part of the Text4Shell fixture contract above, and
+any vulnerabilities found against them depend on the live OSV database.

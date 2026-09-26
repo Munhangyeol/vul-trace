@@ -1,9 +1,9 @@
 export { ScanOrchestrator, deriveScanState } from './ScanOrchestrator.js';
-export type { ScanOrchestratorDeps, ScanReport } from './ScanOrchestrator.js';
+export type { ScanOptions, ScanOrchestratorDeps, ScanReport } from './ScanOrchestrator.js';
 export type { DependencyAnalysisOptions } from '@vulntrace/dependency-analyzer';
 export { createScanOrchestrator } from './createScanOrchestrator.js';
 export { createConsoleScanLogger, silentScanLogger } from './logging/ScanLogger.js';
 export type { ScanLogger, ScanLogTag } from './logging/ScanLogger.js';
 export type { ProjectRepository } from './ports/ProjectRepository.js';
 export type { ScanRepository } from './ports/ScanRepository.js';
-export type { FindingRepository } from './ports/FindingRepository.js';
+export type { FindingRepository, StoredFinding } from './ports/FindingRepository.js';

@@ -7,6 +7,7 @@ import { toScanJobDto } from '../dto/scan.dto.js';
 interface CreateScanBody {
   allowMaven?: boolean;
   mavenTimeoutMs?: number;
+  checkVulnerabilities?: boolean;
 }
 
 const createScanSchema = {
@@ -16,6 +17,7 @@ const createScanSchema = {
     properties: {
       allowMaven: { type: 'boolean' },
       mavenTimeoutMs: { type: 'integer', minimum: 1 },
+      checkVulnerabilities: { type: 'boolean' },
     },
   },
 };
@@ -38,6 +40,7 @@ export function createScanRoutes(container: Container): FastifyPluginAsync {
         const report = await container.scanOrchestrator.run(project.path, {
           allowMaven: request.body.allowMaven ?? false,
           mavenTimeoutMs: request.body.mavenTimeoutMs,
+          checkVulnerabilities: request.body.checkVulnerabilities ?? true,
         });
 
         const scanJob: ScanJob = {
@@ -49,10 +52,12 @@ export function createScanRoutes(container: Container): FastifyPluginAsync {
           failureReason: deriveFailureReason(report.stages),
           stages: report.stages,
           unresolvedDependencies: report.unresolvedDependencies,
+          vulnerabilityCoverage: report.vulnerabilityCoverage,
         };
 
         await container.scanRepository.save(scanJob);
         await container.findingRepository.saveDependencies(scanJob.id, report.dependencies);
+        await container.findingRepository.saveFindings(scanJob.id, report.findings);
 
         return reply.code(201).send(toScanJobDto(scanJob));
       },

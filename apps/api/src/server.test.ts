@@ -1,7 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import type { FindingRepository, ProjectRepository, ScanRepository } from '@vulntrace/core';
+import type {
+  FindingRepository,
+  ProjectRepository,
+  ScanRepository,
+  StoredFinding,
+} from '@vulntrace/core';
 import { createScanOrchestrator, silentScanLogger } from '@vulntrace/core';
 import type { Project, ProjectDependency, ScanJob, VulnerabilityFinding } from '@vulntrace/shared';
 import type { Container } from './container.js';
@@ -52,19 +57,31 @@ class InMemoryScanRepository implements ScanRepository {
 
 class InMemoryFindingRepository implements FindingRepository {
   private readonly dependenciesByScan = new Map<string, ProjectDependency[]>();
+  private readonly findingsByScan = new Map<string, StoredFinding[]>();
+  private readonly findingsById = new Map<string, StoredFinding>();
 
   async saveDependencies(scanId: string, dependencies: ProjectDependency[]): Promise<void> {
     this.dependenciesByScan.set(scanId, dependencies);
   }
 
-  async saveFindings(): Promise<void> {}
+  async saveFindings(scanId: string, findings: VulnerabilityFinding[]): Promise<void> {
+    const stored = findings.map(
+      (finding, index): StoredFinding => ({ id: `${scanId}:${index}`, finding }),
+    );
+    this.findingsByScan.set(scanId, stored);
+    for (const s of stored) this.findingsById.set(s.id, s);
+  }
 
   async listDependencies(scanId: string): Promise<ProjectDependency[]> {
     return this.dependenciesByScan.get(scanId) ?? [];
   }
 
-  async listFindings(): Promise<VulnerabilityFinding[]> {
-    return [];
+  async listFindings(scanId: string): Promise<StoredFinding[]> {
+    return this.findingsByScan.get(scanId) ?? [];
+  }
+
+  async findFindingById(findingId: string): Promise<StoredFinding | null> {
+    return this.findingsById.get(findingId) ?? null;
   }
 }
 
@@ -80,7 +97,8 @@ function testContainer(): Container {
 const fixturePath = (name: string): string =>
   fileURLToPath(new URL(`../../../fixtures/${name}`, import.meta.url));
 
-const app = buildServer(testContainer());
+const container = testContainer();
+const app = buildServer(container);
 
 afterAll(async () => {
   await app.close();
@@ -93,10 +111,14 @@ describe('api server', () => {
     expect(res.json()).toEqual({ status: 'ok' });
   });
 
-  it('GET /api/projects/:projectId/vulnerabilities is not implemented yet (Phase 2)', async () => {
+  it('GET /api/projects/:projectId/vulnerabilities returns 404 for an unknown project', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/projects/any-id/vulnerabilities' });
-    expect(res.statusCode).toBe(501);
-    expect(res.json()).toMatchObject({ error: 'NOT_IMPLEMENTED' });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('GET /api/findings/:findingId returns 404 for an unknown finding', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/findings/does-not-exist' });
+    expect(res.statusCode).toBe(404);
   });
 
   it('GET /api/projects/:projectId returns 404 for an unknown project', async () => {
@@ -136,15 +158,23 @@ describe('api server', () => {
     expect(getRes.statusCode).toBe(200);
     expect(getRes.json()).toMatchObject({ id: project.id });
 
+    // checkVulnerabilities: false — this test wires the real OsvVulnerabilityProvider, and base
+    // tests must pass without network access (Phase 2 plan §5).
     const scanRes = await app.inject({
       method: 'POST',
       url: `/api/projects/${project.id}/scans`,
-      payload: {},
+      payload: { checkVulnerabilities: false },
     });
     expect(scanRes.statusCode).toBe(201);
-    const scan = scanRes.json() as { id: string; state: string; unresolvedDependencies: unknown[] };
+    const scan = scanRes.json() as {
+      id: string;
+      state: string;
+      unresolvedDependencies: unknown[];
+      vulnerabilityCoverage: { checked: number; notChecked: number; failed: number };
+    };
     expect(scan.state).toBe('COMPLETED');
     expect(scan.unresolvedDependencies).toHaveLength(2);
+    expect(scan.vulnerabilityCoverage).toEqual({ checked: 0, notChecked: 2, failed: 0 });
 
     const scansListRes = await app.inject({
       method: 'GET',
@@ -166,6 +196,92 @@ describe('api server', () => {
       'guava',
       'jackson-databind',
     ]);
+  });
+
+  it('exposes a saved finding through GET /vulnerabilities and GET /findings/:id (no network — seeded directly)', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      payload: { name: 'finding-demo', path: fixturePath('spring-vulnerable-used') },
+    });
+    const project = createRes.json() as { id: string };
+
+    const scan: ScanJob = {
+      id: randomUUID(),
+      projectId: project.id,
+      state: 'COMPLETED',
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      stages: [],
+      unresolvedDependencies: [],
+      vulnerabilityCoverage: { checked: 1, notChecked: 0, failed: 0 },
+    };
+    await container.scanRepository.save(scan);
+
+    const dependency: ProjectDependency = {
+      coordinate: {
+        groupId: 'org.apache.commons',
+        artifactId: 'commons-text',
+        version: '1.9',
+        scope: 'compile',
+        direct: true,
+        purl: 'pkg:maven/org.apache.commons/commons-text@1.9',
+      },
+      source: { kind: 'pom.xml', filePath: 'pom.xml' },
+    };
+    await container.findingRepository.saveDependencies(scan.id, [dependency]);
+
+    const finding: VulnerabilityFinding = {
+      vulnerability: {
+        id: 'GHSA-599f-7c49-w659',
+        aliases: ['CVE-2022-42889'],
+        summary: 'Arbitrary code execution in Apache Commons Text',
+        severity: 'CRITICAL',
+        severitySource: 'CVSS_V3',
+        cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H',
+        cvssScore: 9.8,
+        modified: '2024-02-16T08:09:06.872Z',
+        references: ['https://nvd.nist.gov/vuln/detail/CVE-2022-42889'],
+      },
+      package: {
+        ecosystem: 'Maven',
+        name: 'org.apache.commons:commons-text',
+        version: '1.9',
+        purl: dependency.coordinate.purl,
+      },
+      fixedVersions: ['1.10.0'],
+      evidence: {
+        provider: 'OSV',
+        queriedAt: '2026-09-26T00:00:00.000Z',
+        affectedRanges: [{ type: 'ECOSYSTEM', events: [{ introduced: '1.5' }, { fixed: '1.10.0' }] }],
+        affectedVersions: ['1.5', '1.6', '1.7', '1.8', '1.9'],
+      },
+    };
+    await container.findingRepository.saveFindings(scan.id, [finding]);
+
+    const listRes = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${project.id}/vulnerabilities`,
+    });
+    expect(listRes.statusCode).toBe(200);
+    const body = listRes.json() as {
+      findings: Array<{ findingId: string; displayId: string; severity: string }>;
+      coverage: { checked: number };
+    };
+    expect(body.findings).toHaveLength(1);
+    expect(body.findings[0]?.displayId).toBe('CVE-2022-42889');
+    expect(body.findings[0]?.severity).toBe('CRITICAL');
+    expect(body.coverage).toEqual({ checked: 1, notChecked: 0, failed: 0 });
+
+    const findingId = body.findings[0]!.findingId;
+    const detailRes = await app.inject({ method: 'GET', url: `/api/findings/${findingId}` });
+    expect(detailRes.statusCode).toBe(200);
+    expect(detailRes.json()).toMatchObject({
+      findingId,
+      vulnerabilityId: 'GHSA-599f-7c49-w659',
+      displayId: 'CVE-2022-42889',
+      fixedVersions: ['1.10.0'],
+    });
   });
 
   it('POST /api/projects/:projectId/scans returns 404 for an unknown project', async () => {

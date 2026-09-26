@@ -24,7 +24,26 @@ React Dashboard / CLI Report
 
 전체 제품 스펙, 아키텍처 규칙, 개발 단계는 [`CLAUDE.md`](./CLAUDE.md)(또는 [`CLAUDE_KR.md`](./CLAUDE_KR.md))를, 이 리포지토리가 만들어진 스캐폴딩 계획은 [`.claude/docs/init_plan.md`](./.claude/docs/init_plan.md)를 참고하세요.
 
-> **현재 상태**: 모노레포 골격, 도메인 타입, 각 분석 단계의 인터페이스는 모두 갖춰져 있습니다. 실제 분석 로직(Maven 의존성 해석, OSV 조회, Java 소스/도달 가능성 분석, 위험도 산정)은 Phase 1 이후 구현을 앞두고 아직 스텁(`NotImplementedError`) 상태입니다.
+> **현재 상태**: Phase 1(Maven 의존성 분석)과 Phase 2(SBOM + OSV 취약점 매칭)가 구현되어 있습니다. Java 소스 사용 분석, Spring 엔드포인트/도달 가능성 분석, 위험도 산정(Phase 4~7)은 아직 스텁(`NotImplementedError`) 상태입니다.
+>
+> **OSV 조회와 네트워크 전송**: `vulntrace vulnerabilities`/`scan`(기본 동작) 또는 API의 `POST /api/projects/:id/scans`(`checkVulnerabilities` 기본값 `true`)는 확정된 의존성의 패키지 좌표(`groupId:artifactId@version`, purl)를 `https://api.osv.dev`로 전송해 취약점을 조회합니다. 소스 코드나 파일 내용은 전송하지 않습니다. CLI에서는 `--skip-vulnerabilities`로, API에서는 `checkVulnerabilities: false`로 끌 수 있습니다.
+
+---
+
+## 기술 스택
+
+| 영역 | 기술 |
+|---|---|
+| Frontend | React, TypeScript, Vite, React Router, TanStack Query |
+| Backend | Node.js, TypeScript, Fastify |
+| Database | PostgreSQL, Prisma |
+| CLI | TypeScript, Commander.js |
+| 취약점 분석 | OSV API, CycloneDX(SBOM), Maven, Java 소스 분석기 |
+| 분석 대상 | Java / Spring Boot / Maven |
+| 인프라 | Docker, Docker Compose |
+| 모노레포 | pnpm workspace |
+
+> VulnTrace의 구현 언어(TypeScript)와 분석 대상 언어(Java)는 독립적입니다. Redux/Zustand, Redis, Kafka, 큐, 마이크로서비스 등은 구체적인 필요가 생기기 전까지 도입하지 않습니다.
 
 ---
 
@@ -100,7 +119,11 @@ pnpm --filter @vulntrace/web build
 ```bash
 pnpm --filter @vulntrace/cli dev -- --help
 pnpm --filter @vulntrace/cli dev -- scan ./fixtures/spring-vulnerable-reachable
+pnpm --filter @vulntrace/cli dev -- vulnerabilities ./fixtures/spring-vulnerable-used
+pnpm --filter @vulntrace/cli dev -- scan ./fixtures/spring-vulnerable-used --skip-vulnerabilities --sbom ./bom.json
 ```
+
+주요 옵션: `--allow-maven`(전이 의존성 해석을 위해 `mvn dependency:tree` 실행 허용, 기본 비활성), `--skip-vulnerabilities`(OSV 조회를 끔, 네트워크 전송 없음), `--sbom <file>`(생성된 CycloneDX SBOM을 JSON 파일로 저장).
 
 또는 한 번 빌드한 뒤 컴파일된 바이너리를 직접 실행할 수 있습니다.
 

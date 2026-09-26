@@ -1,4 +1,10 @@
-import type { ScanJob, ScanStageResult, ScanState, UnresolvedDependency } from '@vulntrace/shared';
+import type {
+  ScanJob,
+  ScanStageResult,
+  ScanState,
+  UnresolvedDependency,
+  VulnerabilityCoverage,
+} from '@vulntrace/shared';
 
 export interface ScanJobDto {
   id: string;
@@ -9,6 +15,7 @@ export interface ScanJobDto {
   failureReason?: string;
   stages: ScanStageResult[];
   unresolvedDependencies: UnresolvedDependency[];
+  vulnerabilityCoverage: VulnerabilityCoverage;
 }
 
 export function toScanJobDto(scan: ScanJob): ScanJobDto {
@@ -21,5 +28,6 @@ export function toScanJobDto(scan: ScanJob): ScanJobDto {
     failureReason: scan.failureReason,
     stages: scan.stages,
     unresolvedDependencies: scan.unresolvedDependencies,
+    vulnerabilityCoverage: scan.vulnerabilityCoverage,
   };
 }
