@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../shared" },
+    { "path": "../dependency-analyzer" },
+    { "path": "../sbom" },
+    { "path": "../vulnerability" },
+    { "path": "../source-analyzer" },
+    { "path": "../spring-analyzer" },
+    { "path": "../reachability" },
+    { "path": "../risk" }
+  ]
+}

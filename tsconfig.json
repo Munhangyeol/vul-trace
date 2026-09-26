@@ -1,0 +1,16 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/shared" },
+    { "path": "packages/dependency-analyzer" },
+    { "path": "packages/sbom" },
+    { "path": "packages/vulnerability" },
+    { "path": "packages/source-analyzer" },
+    { "path": "packages/spring-analyzer" },
+    { "path": "packages/reachability" },
+    { "path": "packages/risk" },
+    { "path": "packages/core" },
+    { "path": "apps/cli" },
+    { "path": "apps/api" }
+  ]
+}

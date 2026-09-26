@@ -1,0 +1,19 @@
+{
+  "name": "@vulntrace/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@vulntrace/core": "workspace:*",
+    "@vulntrace/shared": "workspace:*",
+    "fastify": "^5.6.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@vulntrace/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "vulntrace": "./dist/index.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@vulntrace/core": "workspace:*",
+    "@vulntrace/shared": "workspace:*",
+    "commander": "^14.0.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5"
+  }
+}

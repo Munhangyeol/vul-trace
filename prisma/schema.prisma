@@ -1,0 +1,208 @@
+// VulnTrace data model (CLAUDE.md §9).
+// Evidence tables are stored alongside conclusions — never only final booleans.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ScanState {
+  PENDING
+  RUNNING
+  PARTIAL
+  COMPLETED
+  FAILED
+}
+
+model Project {
+  id        String    @id @default(uuid())
+  name      String
+  path      String
+  createdAt DateTime  @default(now()) @map("created_at")
+  scans     ScanJob[]
+
+  @@map("projects")
+}
+
+model ScanJob {
+  id            String    @id @default(uuid())
+  projectId     String    @map("project_id")
+  state         ScanState @default(PENDING)
+  startedAt     DateTime  @default(now()) @map("started_at")
+  finishedAt    DateTime? @map("finished_at")
+  failureReason String?   @map("failure_reason")
+  /// Per-stage status and failure reasons (ScanStageResult[]).
+  stageResults  Json      @default("[]") @map("stage_results")
+
+  project                Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectDependencies    ProjectDependency[]
+  projectVulnerabilities ProjectVulnerability[]
+  sourceUsages           SourceUsage[]
+  springEndpoints        SpringEndpoint[]
+  methods                Method[]
+  methodCalls            MethodCall[]
+  reachabilityPaths      ReachabilityPath[]
+  riskScores             RiskScore[]
+
+  @@index([projectId])
+  @@map("scan_jobs")
+}
+
+model Dependency {
+  id         String @id @default(uuid())
+  groupId    String @map("group_id")
+  artifactId String @map("artifact_id")
+  version    String
+  purl       String @unique
+
+  projectDependencies ProjectDependency[]
+
+  @@map("dependencies")
+}
+
+model ProjectDependency {
+  id           String  @id @default(uuid())
+  scanId       String  @map("scan_id")
+  dependencyId String  @map("dependency_id")
+  scope        String
+  direct       Boolean
+  /// Evidence of where the dependency was found, e.g. "pom.xml" or "dependency-tree".
+  source       String
+  sourcePath   String? @map("source_path")
+
+  scan            ScanJob                @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  dependency      Dependency             @relation(fields: [dependencyId], references: [id])
+  vulnerabilities ProjectVulnerability[]
+
+  @@unique([scanId, dependencyId])
+  @@map("project_dependencies")
+}
+
+model Vulnerability {
+  id         String  @id @default(uuid())
+  /// Provider identifier (CVE / GHSA / OSV id).
+  sourceId   String  @unique @map("source_id")
+  aliases    String[]
+  summary    String
+  severity   String
+  cvssVector String? @map("cvss_vector")
+  references Json    @default("[]")
+
+  projectVulnerabilities ProjectVulnerability[]
+
+  @@map("vulnerabilities")
+}
+
+model ProjectVulnerability {
+  id                  String   @id @default(uuid())
+  scanId              String   @map("scan_id")
+  projectDependencyId String   @map("project_dependency_id")
+  vulnerabilityId     String   @map("vulnerability_id")
+  fixedVersions       String[] @map("fixed_versions")
+
+  scan              ScanJob            @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  projectDependency ProjectDependency  @relation(fields: [projectDependencyId], references: [id], onDelete: Cascade)
+  vulnerability     Vulnerability      @relation(fields: [vulnerabilityId], references: [id])
+  sourceUsages      SourceUsage[]
+  reachabilityPaths ReachabilityPath[]
+  riskScores        RiskScore[]
+
+  @@unique([projectDependencyId, vulnerabilityId])
+  @@map("project_vulnerabilities")
+}
+
+model SourceUsage {
+  id                     String @id @default(uuid())
+  scanId                 String @map("scan_id")
+  projectVulnerabilityId String @map("project_vulnerability_id")
+  filePath               String @map("file_path")
+  line                   Int
+  snippet                String
+  /// IMPORT | PACKAGE_REFERENCE | OBJECT_CONSTRUCTION | METHOD_CALL
+  usageKind              String @map("usage_kind")
+  symbol                 String
+
+  scan                 ScanJob              @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  projectVulnerability ProjectVulnerability @relation(fields: [projectVulnerabilityId], references: [id], onDelete: Cascade)
+
+  @@map("source_usages")
+}
+
+model SpringEndpoint {
+  id               String @id @default(uuid())
+  scanId           String @map("scan_id")
+  httpMethod       String @map("http_method")
+  path             String
+  controllerClass  String @map("controller_class")
+  controllerMethod String @map("controller_method")
+  filePath         String @map("file_path")
+  line             Int
+
+  scan              ScanJob            @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  reachabilityPaths ReachabilityPath[]
+
+  @@map("spring_endpoints")
+}
+
+model Method {
+  id         String @id @default(uuid())
+  scanId     String @map("scan_id")
+  className  String @map("class_name")
+  methodName String @map("method_name")
+  signature  String
+  filePath   String @map("file_path")
+  line       Int
+
+  scan     ScanJob      @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  outgoing MethodCall[] @relation("caller")
+  incoming MethodCall[] @relation("callee")
+
+  @@map("methods")
+}
+
+model MethodCall {
+  id             String @id @default(uuid())
+  scanId         String @map("scan_id")
+  callerMethodId String @map("caller_method_id")
+  calleeMethodId String @map("callee_method_id")
+  line           Int
+
+  scan   ScanJob @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  caller Method  @relation("caller", fields: [callerMethodId], references: [id], onDelete: Cascade)
+  callee Method  @relation("callee", fields: [calleeMethodId], references: [id], onDelete: Cascade)
+
+  @@map("method_calls")
+}
+
+model ReachabilityPath {
+  id                     String @id @default(uuid())
+  scanId                 String @map("scan_id")
+  projectVulnerabilityId String @map("project_vulnerability_id")
+  endpointId             String @map("endpoint_id")
+  /// Ordered CallPathStep[] from endpoint to vulnerable usage.
+  steps                  Json
+
+  scan                 ScanJob              @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  projectVulnerability ProjectVulnerability @relation(fields: [projectVulnerabilityId], references: [id], onDelete: Cascade)
+  endpoint             SpringEndpoint       @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@map("reachability_paths")
+}
+
+model RiskScore {
+  id                     String @id @default(uuid())
+  scanId                 String @map("scan_id")
+  projectVulnerabilityId String @map("project_vulnerability_id")
+  score                  Float
+  /// RiskReason[] — every point of the score must be explained.
+  reasons                Json
+
+  scan                 ScanJob              @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  projectVulnerability ProjectVulnerability @relation(fields: [projectVulnerabilityId], references: [id], onDelete: Cascade)
+
+  @@map("risk_scores")
+}

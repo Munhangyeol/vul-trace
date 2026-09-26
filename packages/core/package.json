@@ -1,0 +1,17 @@
+{
+  "name": "@vulntrace/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": { "@vulntrace/shared": "workspace:*", "@vulntrace/dependency-analyzer": "workspace:*", "@vulntrace/sbom": "workspace:*", "@vulntrace/vulnerability": "workspace:*", "@vulntrace/source-analyzer": "workspace:*", "@vulntrace/spring-analyzer": "workspace:*", "@vulntrace/reachability": "workspace:*", "@vulntrace/risk": "workspace:*" }
+}

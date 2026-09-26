@@ -1,0 +1,35 @@
+{
+  "name": "vulntrace",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc -b && pnpm --filter @vulntrace/web typecheck",
+    "build": "pnpm -r build",
+    "test": "tsc -b && vitest run",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "dev:api": "pnpm --filter @vulntrace/api dev",
+    "dev:web": "pnpm --filter @vulntrace/web dev",
+    "db:up": "docker compose up -d postgres",
+    "prisma:validate": "prisma validate",
+    "prisma:generate": "prisma generate",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
+    "@eslint/js": "^9.36.0",
+    "@types/node": "^22.18.0",
+    "eslint": "^9.36.0",
+    "husky": "^9.1.7",
+    "prettier": "^3.6.2",
+    "prisma": "^6.16.0",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.44.0",
+    "vitest": "^3.2.4"
+  }
+}
