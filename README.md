@@ -24,7 +24,7 @@ React Dashboard / CLI Report
 
 전체 제품 스펙, 아키텍처 규칙, 개발 단계는 [`CLAUDE.md`](./CLAUDE.md)(또는 [`CLAUDE_KR.md`](./CLAUDE_KR.md))를, 이 리포지토리가 만들어진 스캐폴딩 계획은 [`.claude/docs/init_plan.md`](./.claude/docs/init_plan.md)를 참고하세요.
 
-> **현재 상태**: Phase 1(Maven 의존성 분석)과 Phase 2(SBOM + OSV 취약점 매칭)가 구현되어 있습니다. Java 소스 사용 분석, Spring 엔드포인트/도달 가능성 분석, 위험도 산정(Phase 4~7)은 아직 스텁(`NotImplementedError`) 상태입니다.
+> **현재 상태**: Phase 1(Maven 의존성 분석), Phase 2(SBOM + OSV 취약점 매칭), Phase 3(CLI 리포트 + React 대시보드)가 구현되어 있습니다. Java 소스 사용 분석, Spring 엔드포인트/도달 가능성 분석, 위험도 산정(Phase 4~7)은 아직 스텁(`NotImplementedError`) 상태이며, 대시보드의 Used/Reachable/Risk Score 열은 그 Phase들이 끝나기 전까지 값을 지어내지 않고 `—`로 표시됩니다.
 >
 > **OSV 조회와 네트워크 전송**: `vulntrace vulnerabilities`/`scan`(기본 동작) 또는 API의 `POST /api/projects/:id/scans`(`checkVulnerabilities` 기본값 `true`)는 확정된 의존성의 패키지 좌표(`groupId:artifactId@version`, purl)를 `https://api.osv.dev`로 전송해 취약점을 조회합니다. 소스 코드나 파일 내용은 전송하지 않습니다. CLI에서는 `--skip-vulnerabilities`로, API에서는 `checkVulnerabilities: false`로 끌 수 있습니다.
 
@@ -109,8 +109,18 @@ curl http://127.0.0.1:3000/api/health # → {"status":"ok"}
 
 ### 웹 대시보드
 
+웹은 Fastify API(DB 포함)를 통해서만 데이터를 보므로, DB와 API를 먼저 띄워야 합니다.
+
 ```bash
-pnpm dev:web           # vite 개발 서버
+pnpm db:up                          # docker compose up -d postgres
+npx prisma migrate dev              # 최초 1회 / 스키마 변경 시
+pnpm dev:api                        # http://127.0.0.1:3000
+pnpm dev:web                        # http://127.0.0.1:5173 (vite, /api → 3000으로 proxy)
+```
+
+`http://127.0.0.1:5173`에서 프로젝트 이름/경로(예: `fixtures/spring-vulnerable-used`)를 등록하고, 대시보드에서 "Run scan" 버튼으로 스캔을 실행하면 같은 `ScanOrchestrator`가 CLI와 동일하게 동작합니다. 빌드만 하려면:
+
+```bash
 pnpm --filter @vulntrace/web build
 ```
 

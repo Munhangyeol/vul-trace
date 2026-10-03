@@ -5,6 +5,7 @@ export type * from './types/source-usage.js';
 export type * from './types/spring.js';
 export type * from './types/reachability.js';
 export type * from './types/risk.js';
+export type * from './api/index.js';
 
 export { ok, err } from './result/result.js';
 export type { Ok, Err, Result } from './result/result.js';

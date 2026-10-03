@@ -1,6 +1,7 @@
 import { basename } from 'node:path';
+import { compareFindings, pickDisplayId, summarizeScan } from '@vulntrace/core';
 import type { ScanReport } from '@vulntrace/core';
-import type { ScanStage, Vulnerability, VulnerabilityFinding } from '@vulntrace/shared';
+import type { ScanStage } from '@vulntrace/shared';
 
 function stageNote(report: ScanReport, stage: ScanStage): string | undefined {
   const result = report.stages.find((s) => s.stage === stage);
@@ -8,19 +9,56 @@ function stageNote(report: ScanReport, stage: ScanStage): string | undefined {
   return `${result.status}${result.reason ? ` — ${result.reason}` : ''}`;
 }
 
+const SUMMARY_LABEL_WIDTH = 19;
+
+/** The CLAUDE.md §7 Phase 3 summary block: Project / State / Dependencies / Vulnerabilities / Critical / High. */
 export function renderSummary(report: ScanReport): string {
-  const lines = [
-    `Project: ${basename(report.projectPath)}`,
-    `Path:    ${report.projectPath}`,
-    `State:   ${report.state}`,
-    '',
-    'Stages:',
-    ...report.stages.map(
-      (s) => `  ${s.stage.padEnd(18)} ${s.status}${s.reason ? `  (${s.reason})` : ''}`,
-    ),
-  ];
+  const summary = summarizeScan(report);
+  const lines = [`Project: ${basename(report.projectPath)}`, `State:   ${report.state}`, ''];
+
+  const detectionNote = stageNote(report, 'PROJECT_DETECTION') ?? stageNote(report, 'DEPENDENCY');
+  if (detectionNote) {
+    lines.push(`Dependencies: unavailable (${detectionNote})`);
+  } else {
+    const unresolvedNote =
+      summary.unresolved > 0 ? `   (${summary.unresolved} unresolved — not checked)` : '';
+    lines.push(
+      `${'Dependencies:'.padEnd(SUMMARY_LABEL_WIDTH)}${summary.dependencies}${unresolvedNote}`,
+      `${'Vulnerabilities:'.padEnd(SUMMARY_LABEL_WIDTH)}${summary.vulnerabilities}`,
+      `${'Critical:'.padEnd(SUMMARY_LABEL_WIDTH)}${summary.bySeverity.CRITICAL}`,
+      `${'High:'.padEnd(SUMMARY_LABEL_WIDTH)}${summary.bySeverity.HIGH}`,
+    );
+
+    const vulnerabilityNote = stageNote(report, 'VULNERABILITY');
+    if (vulnerabilityNote) lines.push('', `Warning: ${vulnerabilityNote}`);
+  }
+
   if (report.warnings.length > 0) {
     lines.push('', 'Warnings:', ...report.warnings.map((w) => `  - ${w}`));
+  }
+
+  return lines.join('\n');
+}
+
+/** Just the sorted vulnerability table — no coverage note, no unresolved-dependency detail. */
+export function renderVulnerabilityTable(report: ScanReport): string {
+  if (report.findings.length === 0) return '';
+
+  const lines = ['ID               Severity  CVSS  Dependency                                Fixed'];
+  for (const finding of [...report.findings].sort(compareFindings)) {
+    const displayId = pickDisplayId(finding.vulnerability);
+    const cvss =
+      finding.vulnerability.cvssScore !== undefined ? finding.vulnerability.cvssScore.toFixed(1) : '-';
+    const dependency = `${finding.package.name}@${finding.package.version}`;
+    const fixed = finding.fixedVersions.length > 0 ? finding.fixedVersions.join(', ') : 'no fix';
+    lines.push(
+      [displayId.padEnd(16), finding.vulnerability.severity.padEnd(9), cvss.padEnd(5), dependency.padEnd(40), fixed].join(
+        ' ',
+      ),
+    );
+    if (finding.vulnerability.id !== displayId) {
+      lines.push(`  (${finding.vulnerability.id})`);
+    }
   }
   return lines.join('\n');
 }
@@ -60,27 +98,6 @@ export function renderDependencies(report: ScanReport): string {
   return lines.join('\n');
 }
 
-/** A CVE alias if present, otherwise the OSV id (CLAUDE.md §7 Phase 2 §2.4). */
-function pickDisplayId(vulnerability: Vulnerability): string {
-  return vulnerability.aliases.find((a) => a.startsWith('CVE-')) ?? vulnerability.id;
-}
-
-const SEVERITY_RANK: Record<Vulnerability['severity'], number> = {
-  CRITICAL: 4,
-  HIGH: 3,
-  MEDIUM: 2,
-  LOW: 1,
-  UNKNOWN: 0,
-};
-
-function compareFindings(a: VulnerabilityFinding, b: VulnerabilityFinding): number {
-  const severityDiff = SEVERITY_RANK[b.vulnerability.severity] - SEVERITY_RANK[a.vulnerability.severity];
-  if (severityDiff !== 0) return severityDiff;
-  const cvssDiff = (b.vulnerability.cvssScore ?? 0) - (a.vulnerability.cvssScore ?? 0);
-  if (cvssDiff !== 0) return cvssDiff;
-  return a.package.name.localeCompare(b.package.name);
-}
-
 export function renderVulnerabilities(report: ScanReport): string {
   const note = stageNote(report, 'VULNERABILITY');
   if (note && report.findings.length === 0) {
@@ -97,27 +114,8 @@ export function renderVulnerabilities(report: ScanReport): string {
   const lines = [`Vulnerabilities: ${report.findings.length}   (${coverageParts.join(', ')})`];
   if (note) lines.push(`Warning: ${note}`);
 
-  if (report.findings.length > 0) {
-    lines.push('ID               Severity  CVSS  Dependency                                Fixed');
-    for (const finding of [...report.findings].sort(compareFindings)) {
-      const displayId = pickDisplayId(finding.vulnerability);
-      const cvss = finding.vulnerability.cvssScore !== undefined ? finding.vulnerability.cvssScore.toFixed(1) : '-';
-      const dependency = `${finding.package.name}@${finding.package.version}`;
-      const fixed = finding.fixedVersions.length > 0 ? finding.fixedVersions.join(', ') : 'no fix';
-      lines.push(
-        [
-          displayId.padEnd(16),
-          finding.vulnerability.severity.padEnd(9),
-          cvss.padEnd(5),
-          dependency.padEnd(40),
-          fixed,
-        ].join(' '),
-      );
-      if (finding.vulnerability.id !== displayId) {
-        lines.push(`  (${finding.vulnerability.id})`);
-      }
-    }
-  }
+  const table = renderVulnerabilityTable(report);
+  if (table) lines.push(table);
 
   if (report.unresolvedDependencies.length > 0) {
     lines.push(

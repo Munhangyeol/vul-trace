@@ -1,22 +1,6 @@
-import type {
-  ScanJob,
-  ScanStageResult,
-  ScanState,
-  UnresolvedDependency,
-  VulnerabilityCoverage,
-} from '@vulntrace/shared';
+import type { ScanJob, ScanJobDto } from '@vulntrace/shared';
 
-export interface ScanJobDto {
-  id: string;
-  projectId: string;
-  state: ScanState;
-  startedAt: string;
-  finishedAt?: string;
-  failureReason?: string;
-  stages: ScanStageResult[];
-  unresolvedDependencies: UnresolvedDependency[];
-  vulnerabilityCoverage: VulnerabilityCoverage;
-}
+export type { ScanJobDto };
 
 export function toScanJobDto(scan: ScanJob): ScanJobDto {
   return {

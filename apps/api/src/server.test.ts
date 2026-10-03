@@ -284,6 +284,166 @@ describe('api server', () => {
     });
   });
 
+  it('GET /api/projects includes a latestScan summary after a scan, and omits it before one', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      payload: { name: 'list-summary', path: fixturePath('spring-vulnerable-used') },
+    });
+    const project = createRes.json() as { id: string };
+
+    const beforeScanList = (await app.inject({ method: 'GET', url: '/api/projects' })).json() as Array<{
+      id: string;
+      latestScan?: unknown;
+    }>;
+    expect(beforeScanList.find((p) => p.id === project.id)?.latestScan).toBeUndefined();
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/projects/${project.id}/scans`,
+      payload: { checkVulnerabilities: false },
+    });
+
+    const afterScanList = (await app.inject({ method: 'GET', url: '/api/projects' })).json() as Array<{
+      id: string;
+      latestScan?: { state: string; dependencyCount: number; vulnerabilityCount: number };
+    }>;
+    const item = afterScanList.find((p) => p.id === project.id);
+    expect(item?.latestScan).toMatchObject({
+      state: 'COMPLETED',
+      dependencyCount: 3,
+      vulnerabilityCount: 0,
+    });
+  });
+
+  it('GET /api/projects/:projectId/summary is null before a scan and populated after', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      payload: { name: 'dashboard-summary', path: fixturePath('spring-vulnerable-used') },
+    });
+    const project = createRes.json() as { id: string };
+
+    const beforeRes = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${project.id}/summary`,
+    });
+    expect(beforeRes.statusCode).toBe(200);
+    expect(beforeRes.json()).toMatchObject({ latestScan: null });
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/projects/${project.id}/scans`,
+      payload: { checkVulnerabilities: false },
+    });
+
+    const afterRes = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${project.id}/summary`,
+    });
+    expect(afterRes.statusCode).toBe(200);
+    expect(afterRes.json()).toMatchObject({
+      project: { id: project.id },
+      latestScan: {
+        state: 'COMPLETED',
+        dependencies: 3,
+        vulnerabilities: 0,
+        unresolvedDependencies: expect.arrayContaining([expect.objectContaining({ artifactId: expect.any(String) })]),
+      },
+    });
+  });
+
+  it('GET /api/projects/:projectId/summary returns 404 for an unknown project', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/projects/unknown-id/summary' });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('GET /api/projects/:projectId/vulnerabilities returns findings sorted by severity then CVSS', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      payload: { name: 'sort-order', path: fixturePath('spring-vulnerable-used') },
+    });
+    const project = createRes.json() as { id: string };
+
+    const scan: ScanJob = {
+      id: randomUUID(),
+      projectId: project.id,
+      state: 'COMPLETED',
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      stages: [],
+      unresolvedDependencies: [],
+      vulnerabilityCoverage: { checked: 2, notChecked: 0, failed: 0 },
+    };
+    await container.scanRepository.save(scan);
+
+    const depA: ProjectDependency = {
+      coordinate: {
+        groupId: 'com.example',
+        artifactId: 'a',
+        version: '1.0',
+        scope: 'compile',
+        direct: true,
+        purl: 'pkg:maven/com.example/a@1.0',
+      },
+      source: { kind: 'pom.xml', filePath: 'pom.xml' },
+    };
+    const depB: ProjectDependency = {
+      coordinate: {
+        groupId: 'com.example',
+        artifactId: 'b',
+        version: '1.0',
+        scope: 'compile',
+        direct: true,
+        purl: 'pkg:maven/com.example/b@1.0',
+      },
+      source: { kind: 'pom.xml', filePath: 'pom.xml' },
+    };
+    await container.findingRepository.saveDependencies(scan.id, [depA, depB]);
+
+    const lowFinding: VulnerabilityFinding = {
+      vulnerability: {
+        id: 'CVE-2020-1',
+        aliases: ['CVE-2020-1'],
+        summary: 'low severity issue',
+        severity: 'LOW',
+        severitySource: 'CVSS_V3',
+        cvssScore: 2.0,
+        modified: '2020-01-01T00:00:00.000Z',
+        references: [],
+      },
+      package: { ecosystem: 'Maven', name: 'com.example:a', version: '1.0', purl: depA.coordinate.purl },
+      fixedVersions: [],
+      evidence: { provider: 'OSV', queriedAt: new Date().toISOString(), affectedRanges: [], affectedVersions: [] },
+    };
+    const criticalFinding: VulnerabilityFinding = {
+      vulnerability: {
+        id: 'CVE-2020-2',
+        aliases: ['CVE-2020-2'],
+        summary: 'critical severity issue',
+        severity: 'CRITICAL',
+        severitySource: 'CVSS_V3',
+        cvssScore: 9.1,
+        modified: '2020-01-01T00:00:00.000Z',
+        references: [],
+      },
+      package: { ecosystem: 'Maven', name: 'com.example:b', version: '1.0', purl: depB.coordinate.purl },
+      fixedVersions: [],
+      evidence: { provider: 'OSV', queriedAt: new Date().toISOString(), affectedRanges: [], affectedVersions: [] },
+    };
+    // Saved in LOW-then-CRITICAL order to prove the response is sorted, not insertion order.
+    await container.findingRepository.saveFindings(scan.id, [lowFinding, criticalFinding]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${project.id}/vulnerabilities`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { findings: Array<{ displayId: string; severity: string }> };
+    expect(body.findings.map((f) => f.displayId)).toEqual(['CVE-2020-2', 'CVE-2020-1']);
+  });
+
   it('POST /api/projects/:projectId/scans returns 404 for an unknown project', async () => {
     const res = await app.inject({
       method: 'POST',

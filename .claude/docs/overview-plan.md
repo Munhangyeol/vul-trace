@@ -28,7 +28,8 @@ vulnerable API reachable→ 엔드포인트 → ... → 호출 위치 콜 경로
 
 **Phase 0 (스캐폴딩) 완료** — 커밋 `1470308 feat: scaffold TypeScript monorepo for VulnTrace MVP`
 **Phase 1 (Maven 의존성 분석) 완료** — 커밋 `3cce848 feat: implement Phase 1 Maven dependency analysis`
-**Phase 2 (SBOM + OSV 취약점 매칭) 완료**
+**Phase 2 (SBOM + OSV 취약점 매칭) 완료** — 커밋 `5bc7f58 feat: implement Phase 2 SBOM + OSV vulnerability matching`
+**Phase 3 (CLI 리포트 + React 대시보드, DB 연동) 완료** — 상세 계획 `phase-3-dashboard-cli.md`
 
 | 영역 | 상태 |
 |---|---|
@@ -38,15 +39,15 @@ vulnerable API reachable→ 엔드포인트 → ... → 호출 위치 콜 경로
 | `packages/sbom` | `CycloneDxBuilder` — CycloneDX 1.5 SBOM 생성 구현 완료 |
 | `packages/vulnerability` | `OsvVulnerabilityProvider` — OSV querybatch/vulns 조회, CVSS v3 계산, 심각도 매핑, fixed version 추출 구현 완료 |
 | `packages/source-analyzer`/`spring-analyzer`/`reachability`/`risk` | 인터페이스 + `NotImplementedError` 스텁 (Phase 4~7 예정) |
-| `packages/core` | `ScanOrchestrator`가 PROJECT_DETECTION → DEPENDENCY → DEPENDENCY_TREE → SBOM → VULNERABILITY까지 연결 |
-| `apps/cli` | `scan/dependencies/vulnerabilities/report` 구현 완료 (`--allow-maven`, `--skip-vulnerabilities`, `--sbom`) |
-| `apps/api` | 프로젝트/스캔/의존성/취약점/finding 라우트 구현 완료 (Prisma 저장) |
-| `apps/web` | Vite + Router + TanStack Query + 4개 페이지 골격 (Phase 3 예정) |
+| `packages/core` | `ScanOrchestrator`가 PROJECT_DETECTION → DEPENDENCY → DEPENDENCY_TREE → SBOM → VULNERABILITY까지 연결. `summarizeScan`/`compareFindings`/`pickDisplayId`를 CLI·API 공용 집계·정렬 로직으로 추가 |
+| `apps/cli` | `scan`(요약+취약점 표)/`report`(요약+의존성+취약점+미확정, `--json` 지원)/`dependencies`/`vulnerabilities` 구현 완료 (`--allow-maven`, `--skip-vulnerabilities`, `--sbom`) |
+| `apps/api` | 프로젝트/스캔/의존성/취약점/finding 라우트 + `GET /projects`(목록에 `latestScan` 집계 포함)/`GET /projects/:id/summary`(대시보드 집계) 구현 완료 (Prisma 저장). DTO 타입은 `packages/shared/src/api/*`로 이동 |
+| `apps/web` | Vite + Router + TanStack Query. 프로젝트 등록/목록, 대시보드(집계+스캔 실행+단계별 상태), 취약점 목록, 상세 화면까지 실데이터 연동 완료. Used/Reachable/Risk Score는 Phase 4/6/7 전까지 `—` |
 | `prisma/` | 마이그레이션 2개 적용 (`init`, `phase2_vulnerability_evidence`) |
 | `fixtures/` | Spring 픽스처 4종 (`commons-text:1.9`, CVE-2022-42889 기준). `spring-vulnerable-used`에 pom 파싱 경로 검증용 `guava`/`jackson-databind`/`commons-io` 추가 |
 | 품질 도구 | ESLint, Prettier, Vitest, husky + commitlint |
 
-**다음 작업: Phase 3 — CLI 리포트 + React 대시보드 (DB 연동)**
+**다음 작업: Phase 4 — Java 소스 사용 분석** (착수 전 "artifact → Java 패키지 매핑 방식"과 "취약 API 정보 출처" 결정 필요, §7 참고)
 
 ---
 
@@ -56,8 +57,8 @@ vulnerable API reachable→ 엔드포인트 → ... → 호출 위치 콜 경로
 Phase 0  스캐폴딩                          ✅ 완료
 Phase 1  Maven 의존성 분석                  ✅ 완료
 Phase 2  SBOM + OSV 취약점 매칭             ✅ 완료
-Phase 3  CLI 리포트 + React 대시보드 (DB 연동) ◀ 다음
-Phase 4  Java 소스 사용 분석                ── 여기까지 MVP 1 (§23)
+Phase 3  CLI 리포트 + React 대시보드 (DB 연동) ✅ 완료
+Phase 4  Java 소스 사용 분석                ◀ 다음, 여기까지 MVP 1 (§23)
 Phase 5  Spring 엔드포인트 분석
 Phase 6  도달성(Reachability) 분석
 Phase 7  위험도 우선순위화

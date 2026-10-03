@@ -1,9 +1,5 @@
 import type { FastifyReply } from 'fastify';
-
-export interface ErrorResponseDto {
-  error: string;
-  message: string;
-}
+import type { ErrorResponseDto } from '@vulntrace/shared';
 
 export function replyNotImplemented(reply: FastifyReply, feature: string): FastifyReply {
   const body: ErrorResponseDto = {

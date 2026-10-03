@@ -1,7 +1,7 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import type { Command } from 'commander';
 import type { ScanOrchestrator } from '@vulntrace/core';
-import { renderDependencies, renderSummary, renderVulnerabilities } from '../render/text-report.js';
+import { renderSummary, renderVulnerabilityTable } from '../render/text-report.js';
 import { addMavenOptions, parseMavenOptions } from './mavenOptions.js';
 import type { MavenCliOptions } from './mavenOptions.js';
 import { addVulnerabilityOptions, parseVulnerabilityOptions } from './vulnerabilityOptions.js';
@@ -41,10 +41,7 @@ export function registerScanCommand(program: Command, orchestrator: ScanOrchestr
       }
     }
 
-    console.log(
-      [renderSummary(report), renderDependencies(report), renderVulnerabilities(report)].join(
-        '\n\n',
-      ),
-    );
+    const table = renderVulnerabilityTable(report);
+    console.log([renderSummary(report), table].filter((part) => part !== '').join('\n\n'));
   });
 }

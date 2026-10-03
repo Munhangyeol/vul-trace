@@ -7,3 +7,6 @@ export type { ScanLogger, ScanLogTag } from './logging/ScanLogger.js';
 export type { ProjectRepository } from './ports/ProjectRepository.js';
 export type { ScanRepository } from './ports/ScanRepository.js';
 export type { FindingRepository, StoredFinding } from './ports/FindingRepository.js';
+export { summarizeScan } from './summary/summarizeScan.js';
+export type { ScanSummary, ScanSummaryInput } from './summary/summarizeScan.js';
+export { compareFindings, pickDisplayId, SEVERITY_RANK } from './summary/findingOrder.js';
