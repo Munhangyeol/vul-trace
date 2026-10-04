@@ -24,9 +24,74 @@ React Dashboard / CLI Report
 
 전체 제품 스펙, 아키텍처 규칙, 개발 단계는 [`CLAUDE.md`](./CLAUDE.md)(또는 [`CLAUDE_KR.md`](./CLAUDE_KR.md))를, 이 리포지토리가 만들어진 스캐폴딩 계획은 [`.claude/docs/init_plan.md`](./.claude/docs/init_plan.md)를 참고하세요.
 
-> **현재 상태**: Phase 1(Maven 의존성 분석), Phase 2(SBOM + OSV 취약점 매칭), Phase 3(CLI 리포트 + React 대시보드)가 구현되어 있습니다. Java 소스 사용 분석, Spring 엔드포인트/도달 가능성 분석, 위험도 산정(Phase 4~7)은 아직 스텁(`NotImplementedError`) 상태이며, 대시보드의 Used/Reachable/Risk Score 열은 그 Phase들이 끝나기 전까지 값을 지어내지 않고 `—`로 표시됩니다.
+> **현재 상태: Phase 3까지 구현 완료** — Phase 1(Maven 의존성 분석), Phase 2(SBOM + OSV 취약점 매칭), Phase 3(CLI 리포트 + React 대시보드, DB 연동)가 구현되어 있습니다. Java 소스 사용 분석, Spring 엔드포인트/도달 가능성 분석, 위험도 산정(Phase 4~7)은 아직 스텁(`NotImplementedError`) 상태이며, 대시보드의 Used/Reachable/Risk Score 열은 그 Phase들이 끝나기 전까지 값을 지어내지 않고 `—`로 표시됩니다. 실제 동작 예시는 아래 [현재 구현 상태](#현재-구현-상태-phase-3까지)를 참고하세요.
 >
 > **OSV 조회와 네트워크 전송**: `vulntrace vulnerabilities`/`scan`(기본 동작) 또는 API의 `POST /api/projects/:id/scans`(`checkVulnerabilities` 기본값 `true`)는 확정된 의존성의 패키지 좌표(`groupId:artifactId@version`, purl)를 `https://api.osv.dev`로 전송해 취약점을 조회합니다. 소스 코드나 파일 내용은 전송하지 않습니다. CLI에서는 `--skip-vulnerabilities`로, API에서는 `checkVulnerabilities: false`로 끌 수 있습니다.
+
+---
+
+## 현재 구현 상태 (Phase 3까지)
+
+| Phase | 내용 | 상태 |
+|---|---|---|
+| 0 | TypeScript 모노레포 스캐폴딩 | ✅ 완료 |
+| 1 | Maven 의존성 분석 (pom.xml 파싱, `mvn dependency:tree`, purl) | ✅ 완료 |
+| 2 | CycloneDX SBOM + OSV 취약점 매칭 | ✅ 완료 |
+| 3 | CLI 리포트 + React 대시보드 (PostgreSQL 연동) | ✅ 완료 |
+| 4 | Java 소스 사용 분석 | ⏳ 다음 단계 |
+| 5~8 | Spring 엔드포인트 / 도달 가능성 / 위험도 / 조치 안내 | 미착수 |
+
+아래 결과는 `fixtures/spring-vulnerable-used`를 실제로 스캔해서 얻은 것입니다(2026-10-04, 실제 OSV 조회, `--allow-maven` 없이 실행). OSV 데이터는 계속 갱신되므로 취약점 개수는 실행 시점에 따라 달라질 수 있습니다. 픽스처의 기준 취약점인 `commons-text 1.9` → CVE-2022-42889(Critical, fixed `1.10.0`)는 항상 검출되어야 합니다.
+
+### CLI
+
+```text
+$ node apps/cli/dist/index.js scan fixtures/spring-vulnerable-used
+Project: spring-vulnerable-used
+State:   COMPLETED
+
+Dependencies:      3   (2 unresolved — not checked)
+Vulnerabilities:   12
+Critical:          1
+High:              5
+
+ID               Severity  CVSS  Dependency                                Fixed
+CVE-2022-42889   CRITICAL  9.8   org.apache.commons:commons-text@1.9      1.10.0
+  (GHSA-599f-7c49-w659)
+CVE-2026-54512   HIGH      8.1   com.fasterxml.jackson.core:jackson-databind@2.15.2 2.18.8, 3.1.4, 2.21.4
+...
+```
+
+- `scan`은 요약 블록과 취약점 표를 출력합니다. `report`는 요약, 의존성, 취약점, 미확정 의존성을 모두 담은 전체 텍스트 리포트를 출력하고, `--json`을 주면 JSON으로 출력합니다.
+- 버전을 부모 POM이 관리하는 의존성(예: `spring-boot-starter-web`)은 Maven 실행 없이는 버전을 알 수 없습니다. 이런 의존성은 숨기지 않고 `unresolved — not checked`로 따로 셉니다.
+- 취약점은 심각도와 CVSS 순으로 정렬됩니다. 정렬은 `packages/core`의 `compareFindings`가 맡으며, CLI와 API가 같은 함수를 씁니다.
+
+### 웹 대시보드
+
+**Project Dashboard**: 웹에서 "Run scan"을 누르면 API가 CLI와 같은 `ScanOrchestrator`로 스캔하고 결과를 PostgreSQL에 저장합니다. 화면에는 Dependencies / Vulnerabilities / Critical / High 집계, 단계별 상태(PROJECT_DETECTION → … → RISK)와 SKIPPED/FAILED 사유, vulnerability coverage, 미확정 의존성 목록이 나옵니다. Used/Reachable은 Phase 4/6 전까지 `—`로 표시됩니다.
+
+![Project Dashboard](./.claude/resources/phase3-dashboard.jpg)
+
+**Vulnerability List**: CVE / Dependency / Version / Severity / CVSS / Fixed / Used / Reachable / Risk Score 열이 있고, 정렬은 API가 해서 보냅니다. 행을 누르면 상세 화면으로 이동합니다.
+
+![Vulnerability List](./.claude/resources/phase3-vulnerability-list.jpg)
+
+브라우저 end-to-end 확인에서 함께 동작을 확인한 기능:
+
+- **Project List**: 프로젝트마다 최근 스캔 상태, 의존성 수, 취약점 수가 나옵니다. 스캔이 끝나면 다시 불러와 갱신됩니다.
+- **프로젝트 등록 에러 표시**: 없는 경로를 등록하면 서버 응답이 그대로 표시됩니다(`PATH_NOT_FOUND: path does not exist or is not a directory: ...`).
+- **Vulnerability Detail**: 다음 정보가 나옵니다.
+  - CVE 메타데이터: OSV id(GHSA), CVE 별칭, 요약, 심각도와 그 출처(`CVSS_V3`), CVSS 벡터
+  - 의존성: purl, 현재 버전, fixed 버전
+  - 근거: provider(OSV), 조회 시각, 영향 버전, `affectedRanges` 원문
+  - references
+  - Usage / Reachability / Risk / Remediation 섹션은 "Not analyzed yet (Phase N)"으로 표시됩니다.
+
+### 알려진 한계 (Phase 3 기준)
+
+- 대시보드의 "Run scan"은 기본 옵션(Maven 미실행, OSV 조회)으로만 스캔합니다. 옵션을 고르는 UI는 아직 없습니다.
+- 스캔은 요청 안에서 동기로 실행됩니다. 스캔 결과 저장이 하나의 트랜잭션으로 묶여 있지 않고, 프로젝트 목록 집계는 프로젝트마다 쿼리를 따로 보냅니다(N+1).
+- 인증/권한, 페이지네이션은 없습니다.
 
 ---
 
@@ -115,7 +180,14 @@ curl http://127.0.0.1:3000/api/health # → {"status":"ok"}
 pnpm db:up                          # docker compose up -d postgres
 npx prisma migrate dev              # 최초 1회 / 스키마 변경 시
 pnpm dev:api                        # http://127.0.0.1:3000
-pnpm dev:web                        # http://127.0.0.1:5173 (vite, /api → 3000으로 proxy)
+pnpm dev:web                        # http://localhost:5173 (vite, /api → API_PORT(기본 3000)로 proxy)
+```
+
+3000번 포트를 다른 프로그램(예: Grafana)이 쓰고 있으면, API와 웹을 같은 `API_PORT`로 띄우세요.
+
+```bash
+API_PORT=3001 pnpm dev:api
+API_PORT=3001 pnpm dev:web
 ```
 
 `http://127.0.0.1:5173`에서 프로젝트 이름/경로(예: `fixtures/spring-vulnerable-used`)를 등록하고, 대시보드에서 "Run scan" 버튼으로 스캔을 실행하면 같은 `ScanOrchestrator`가 CLI와 동일하게 동작합니다. 빌드만 하려면:
@@ -140,6 +212,14 @@ pnpm --filter @vulntrace/cli dev -- scan ./fixtures/spring-vulnerable-used --ski
 ```bash
 pnpm --filter @vulntrace/cli build
 node apps/cli/dist/index.js --help
+```
+
+`vulntrace` 명령으로 바로 쓰려면 한 번만 전역 링크를 걸어 두세요. 링크는 `apps/cli/dist`를 가리키므로, CLI 소스를 고친 뒤에는 다시 빌드해야 반영됩니다.
+
+```bash
+pnpm --filter @vulntrace/cli build
+cd apps/cli && pnpm link --global      # 해제: pnpm uninstall --global @vulntrace/cli
+vulntrace scan fixtures/spring-vulnerable-used
 ```
 
 ### 데이터베이스 (PostgreSQL + Prisma)

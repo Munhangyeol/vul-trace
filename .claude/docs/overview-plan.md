@@ -49,6 +49,8 @@ vulnerable API reachable→ 엔드포인트 → ... → 호출 위치 콜 경로
 
 **다음 작업: Phase 4 — Java 소스 사용 분석** (착수 전 "artifact → Java 패키지 매핑 방식"과 "취약 API 정보 출처" 결정 필요, §7 참고)
 
+**MVP 1 이후: GitHub 저장소 입력** — 현재는 API 서버 기준 로컬 경로만 입력 가능. 최종적으로 GitHub 저장소의 소스 코드를 분석해야 하므로 MVP 1 완료 후 입력 단계를 확장한다 (§4 "GitHub Repository Input" 참고)
+
 ---
 
 ## 3. 로드맵 한눈에 보기
@@ -59,6 +61,7 @@ Phase 1  Maven 의존성 분석                  ✅ 완료
 Phase 2  SBOM + OSV 취약점 매칭             ✅ 완료
 Phase 3  CLI 리포트 + React 대시보드 (DB 연동) ✅ 완료
 Phase 4  Java 소스 사용 분석                ◀ 다음, 여기까지 MVP 1 (§23)
+(MVP 1 이후) GitHub 저장소 입력             — 로컬 경로 외에 GitHub URL로 스캔
 Phase 5  Spring 엔드포인트 분석
 Phase 6  도달성(Reachability) 분석
 Phase 7  위험도 우선순위화
@@ -72,6 +75,7 @@ Phase 8  조치(Remediation) 안내
 | 2 | `sbom`, `vulnerability` | `vulnerabilities`, `project_vulnerabilities` | OSV 응답 정규화 테스트, 픽스처에서 CVE-2022-42889 검출 |
 | 3 | `apps/cli`, `apps/api`, `apps/web` | (조회) | `vulntrace scan fixtures/...` 출력, 대시보드 표시 |
 | 4 | `source-analyzer` | `source_usages` | Case A: `used=false`, Case B/C: `used=true` |
+| GitHub 입력 | `repository-source`(신규), `core`, `apps/*` | `projects` 컬럼 추가, `scan_jobs.commitSha` | 공개 GitHub 저장소 URL로 스캔 → 로컬 경로 스캔과 같은 결과 + commit SHA 기록 |
 | 5 | `spring-analyzer` | `spring_endpoints` | 라우트 추출 단위 테스트 |
 | 6 | `reachability` | `methods`, `method_calls`, `reachability_paths` | Case B: `reachable=false`, Case C: `reachable=true` |
 | 7 | `risk` | `risk_scores` | 점수 + 근거 단위 테스트 |
@@ -142,6 +146,7 @@ ScanOrchestrator에 단계 연결 + [TAG] 로그 추가 (§20)
 
 작업 순서:
 
+
 1. CLI `scan` / `report` — 요약 출력 (Dependencies / Vulnerabilities / Critical / High)
 2. API — `POST/GET /api/projects`, `POST/GET /api/projects/:id/scans`, `GET .../dependencies`, `GET .../vulnerabilities`
 3. DTO 계층 정의 (Prisma 모델 직접 노출 금지, §10)
@@ -178,6 +183,47 @@ spring-vulnerable-reachable → used=true
 ```
 
 **Phase 4 완료 = MVP 1 달성** (§23 1~12항 end-to-end)
+
+### (MVP 1 이후) GitHub Repository Input
+
+**목표**: 로컬 경로뿐 아니라 GitHub 저장소 URL을 입력받아 그 소스 코드를 분석
+
+CLAUDE.md는 Phase 1에서 "로컬 경로 입력"만 요구하므로, 이 단계는 최종 제품 요구에 따라 추가한 확장이다. 분석 엔진을 픽스처로 먼저 완성한 뒤(MVP 1) 진행한다.
+
+설계 방향:
+
+- 분석기는 지금처럼 "폴더 경로"만 입력으로 받는다. 저장소를 가져오는 일은 별도의 입력 단계에서 처리하고, `ScanOrchestrator`와 분석기는 바꾸지 않는다
+
+```text
+사용자 입력: https://github.com/owner/repo (+ branch / tag / commit)
+        ↓
+RepositorySource
+  ├─ LocalPathSource      ← 현재 방식
+  └─ GitRepositorySource  ← 얕은 clone으로 임시 작업 폴더 생성
+        ↓
+ScanOrchestrator.run(작업 폴더 경로)   ← 변경 없음
+        ↓
+스캔 종료 후 작업 폴더 삭제
+```
+
+작업 순서:
+
+1. `RepositorySource` 인터페이스 + `LocalPathSource`(기존 경로 검증 로직 이동)
+2. `GitRepositorySource` — `execFile('git', ['clone', '--depth', '1', '--single-branch', '--no-recurse-submodules', ...])`, 타임아웃, stdout/stderr 캡처, 실패 사유 기록
+3. 실제로 분석한 commit SHA를 스캔 결과에 근거로 저장 (§6.2)
+4. `projects`에 `sourceType`(LOCAL / GIT), `repoUrl`, `ref` 추가, `scan_jobs`에 `commitSha` 추가
+5. 스캔 단계에 저장소 가져오기 단계(예: `REPOSITORY_FETCH`) 추가 — 실패하면 FAILED와 사유 기록 (§19)
+6. API 등록 DTO 확장, 웹 등록 폼에 "로컬 경로 / GitHub URL" 선택, CLI `vulntrace scan https://github.com/...` 지원
+
+보안 (§15, §16 — 저장소는 신뢰할 수 없는 입력):
+
+- 처음에는 `https://github.com/<owner>/<repo>` 형식만 허용. `GIT_ALLOW_PROTOCOL=https`로 `file://`, `ext::` 등 다른 전송 방식 차단
+- clone 옵션: 서브모듈 받지 않음, LFS 다운로드 끄기(`GIT_LFS_SKIP_SMUDGE=1`), 심볼릭 링크 끄기(`core.symlinks=false`), 저장소 크기·파일 수 상한
+- clone한 코드는 빌드·실행하지 않음. 정적 분석만 하고, `--allow-maven`은 지금처럼 사용자가 직접 켜야만 동작
+- 비공개 저장소(토큰 필요)는 초기 범위 밖. 지원할 때도 토큰은 로그·DB에 평문으로 남기지 않음 (§20)
+- GitHub API tarball 방식은 압축 해제 라이브러리 추가와 경로 탈출 방어가 필요하므로, 얕은 clone을 우선 사용
+
+완료 기준: 공개 GitHub 저장소 URL을 등록해 스캔하면 같은 코드를 로컬 경로로 스캔한 결과와 일치하고, 결과에 commit SHA가 기록됨. 스캔 후 임시 작업 폴더가 남지 않음
 
 ### Phase 5 — Spring Endpoint Analysis
 
@@ -244,6 +290,7 @@ spring-vulnerable-reachable → reachable=true
 | M2 취약점 탐지 | 2 | CLI로 CVE 목록 + fixed version 출력 |
 | M3 대시보드 | 3 | 웹에서 프로젝트/취약점 조회 |
 | **MVP 1** | 1~4 | §23 Definition of Done 전체 충족 (소스 사용 증거 포함) |
+| M4 GitHub 입력 | MVP 1 이후 | 공개 GitHub 저장소 URL로 스캔, commit SHA 근거 기록 |
 | M5 도달성 | 5~6 | 엔드포인트 → 취약 API 콜 경로 제시 |
 | M6 우선순위/조치 | 7~8 | 설명 가능한 점수 + 조치 안내 |
 
@@ -273,6 +320,8 @@ spring-vulnerable-reachable → reachable=true
 | TS 기반 Java 파싱 정밀도 | 4~6 | 파서 추상화 유지, 한계 명시, 필요 시 Stage B |
 | 다형성/DI/AOP로 인한 콜 그래프 누락 | 6 | "분석 범위" 표기, false negative 가능성 문서화 |
 | 인증 요구 여부 정적 판단 | 7 | 판단 불가 시 unknown, 점수 근거에 명시 |
+| 외부 저장소 clone의 신뢰 문제 (악성 저장소, 대용량, 서브모듈/LFS/심볼릭 링크) | GitHub 입력 | https만 허용, 얕은 clone, 서브모듈·LFS·심볼릭 링크 끄기, 크기 상한, 코드 실행 금지 |
+| 비공개 저장소 인증 토큰 관리 | GitHub 입력 | 초기에는 공개 저장소만 지원, 이후 토큰은 평문 저장·로그 금지 |
 
 ---
 
