@@ -148,6 +148,75 @@ describe('matchDependencyUsages', () => {
     expect(usagesOf(result, COMMONS_LANG3.purl)).toEqual(['IMPORT org.apache.commons.lang3.StringUtils @2']);
   });
 
+  describe('curated mappings for artifacts whose packages differ from their groupId', () => {
+    const dep = (groupId: string, artifactId: string): DependencyRef => ({
+      groupId,
+      artifactId,
+      purl: `pkg:maven/${groupId}/${artifactId}@1.0`,
+    });
+    const importsOf = (deps: DependencyRef[], imports: string[]) =>
+      matchDependencyUsages(
+        analysis([
+          {
+            path: 'src/main/java/demo/A.java',
+            source: ['package demo;', ...imports.map((i) => `import ${i};`), 'class A {}'].join('\n'),
+          },
+        ]),
+        deps,
+      );
+
+    it('maps groupIds that are not package names (httpclient, commons-net, commons-httpclient, jdom2)', () => {
+      const httpclient = dep('org.apache.httpcomponents', 'httpclient');
+      const fluent = dep('org.apache.httpcomponents', 'fluent-hc');
+      const net = dep('commons-net', 'commons-net');
+      const legacyHttp = dep('commons-httpclient', 'commons-httpclient');
+      const jdom2 = dep('org.jdom', 'jdom2');
+      const result = importsOf(
+        [httpclient, fluent, net, legacyHttp, jdom2],
+        [
+          'org.apache.http.client.methods.HttpGet',
+          'org.apache.http.client.fluent.Request',
+          'org.apache.commons.net.util.SubnetUtils',
+          'org.apache.commons.httpclient.HttpClient',
+          'org.jdom2.input.SAXBuilder',
+        ],
+      );
+      expect(usagesOf(result, httpclient.purl)).toEqual(['IMPORT org.apache.http.client.methods.HttpGet @2']);
+      expect(usagesOf(result, fluent.purl)).toEqual(['IMPORT org.apache.http.client.fluent.Request @3']);
+      expect(usagesOf(result, net.purl)).toEqual(['IMPORT org.apache.commons.net.util.SubnetUtils @4']);
+      expect(usagesOf(result, legacyHttp.purl)).toEqual(['IMPORT org.apache.commons.httpclient.HttpClient @5']);
+      expect(usagesOf(result, jdom2.purl)).toEqual(['IMPORT org.jdom2.input.SAXBuilder @6']);
+      expect(result.every((r) => r.packageMapping.basis === 'CURATED')).toBe(true);
+    });
+
+    it('attributes OOXML classes to poi-ooxml only, not to poi', () => {
+      const poi = dep('org.apache.poi', 'poi');
+      const ooxml = dep('org.apache.poi', 'poi-ooxml');
+      const result = importsOf([poi, ooxml], ['org.apache.poi.xssf.usermodel.XSSFWorkbook']);
+      expect(usagesOf(result, poi.purl)).toEqual([]);
+      expect(usagesOf(result, ooxml.purl)).toEqual(['IMPORT org.apache.poi.xssf.usermodel.XSSFWorkbook @2']);
+    });
+
+    it('splits Spring Security evidence between core, config and web', () => {
+      const core = dep('org.springframework.security', 'spring-security-core');
+      const config = dep('org.springframework.security', 'spring-security-config');
+      const web = dep('org.springframework.security', 'spring-security-web');
+      const result = importsOf(
+        [core, config, web],
+        [
+          'org.springframework.security.core.Authentication',
+          'org.springframework.security.config.annotation.web.builders.HttpSecurity',
+          'org.springframework.security.web.csrf.CsrfToken',
+        ],
+      );
+      expect(usagesOf(result, core.purl)).toEqual(['IMPORT org.springframework.security.core.Authentication @2']);
+      expect(usagesOf(result, config.purl)).toEqual([
+        'IMPORT org.springframework.security.config.annotation.web.builders.HttpSecurity @3',
+      ]);
+      expect(usagesOf(result, web.purl)).toEqual(['IMPORT org.springframework.security.web.csrf.CsrfToken @4']);
+    });
+  });
+
   it('falls back to the groupId as package prefix and records that basis', () => {
     const dep: DependencyRef = { groupId: 'io.jsonwebtoken', artifactId: 'jjwt-api', purl: 'pkg:maven/io.jsonwebtoken/jjwt-api@0.11.5' };
     const result = matchDependencyUsages(
