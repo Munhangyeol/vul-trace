@@ -88,21 +88,25 @@ CVE-2022-42889  org.apache.commons:commons-text@1.9  used, vulnerable API used
 
 ### 웹 대시보드
 
+**Project List**: 프로젝트 이름과 로컬 경로로 등록하고, 프로젝트마다 최근 스캔 상태, 의존성 수, 취약점 수를 봅니다. 아래는 픽스처와 함께 실제 오픈소스 저장소 3개를 등록한 화면입니다([실제 저장소로 확인](#실제-오픈소스-저장소로-확인) 참고).
+
+![Project List](./.claude/resources/web-project-list.jpg)
+
 **Project Dashboard**: 웹에서 "Run scan"을 누르면 API가 CLI와 같은 `ScanOrchestrator`로 스캔하고 결과를 PostgreSQL에 저장합니다. 화면에는 Dependencies / Vulnerabilities / Critical / High 집계, 단계별 상태(PROJECT_DETECTION → … → RISK)와 SKIPPED/FAILED 사유, vulnerability coverage, 미확정 의존성 목록이 나옵니다. Used Vulnerabilities는 소스에서 사용하는 취약점 수이고(소스 분석 전 스캔이면 `—`), Reachable은 Phase 6 전까지 `—`로 표시됩니다.
 
-![Project Dashboard](./.claude/resources/phase3-dashboard.jpg)
+![Project Dashboard](./.claude/resources/web-dashboard.jpg)
 
 **Vulnerability List**: CVE / Dependency / Version / Severity / CVSS / Fixed / Used / Reachable / Risk Score 열이 있고, 정렬은 API가 해서 보냅니다. Used 열은 `Yes (vulnerable API used)`처럼 취약 API 판정을 함께 보여 줍니다. 행을 누르면 상세 화면으로 이동합니다.
 
-![Vulnerability List](./.claude/resources/phase4-vulnerability-list.jpg)
+![Vulnerability List](./.claude/resources/web-vulnerability-list.jpg)
 
 **Vulnerability Detail — Usage evidence**: 사용 여부, main/test 사용 수, 취약 API 판정, 검사한 취약 API 목록, 의존성 패키지 매핑 근거(`curated mapping` / `assumed from groupId`), 사용 위치 표(파일:라인, 종류, 심볼, Source set, 취약 API 여부, 코드 조각)가 나옵니다. 데이터는 `GET /api/findings/:findingId/usages`에서 가져옵니다.
 
-![Usage evidence](./.claude/resources/phase4-usage-evidence.jpg)
+![Usage evidence](./.claude/resources/web-usage-evidence.jpg)
 
 브라우저 end-to-end 확인에서 함께 동작을 확인한 기능:
 
-- **Project List**: 프로젝트마다 최근 스캔 상태, 의존성 수, 취약점 수가 나옵니다. 스캔이 끝나면 다시 불러와 갱신됩니다.
+- **Project List**: 스캔이 끝나면 목록을 다시 불러와 갱신됩니다.
 - **프로젝트 등록 에러 표시**: 없는 경로를 등록하면 서버 응답이 그대로 표시됩니다(`PATH_NOT_FOUND: path does not exist or is not a directory: ...`).
 - **Vulnerability Detail**: 다음 정보가 나옵니다.
   - CVE 메타데이터: OSV id(GHSA), CVE 별칭, 요약, 심각도와 그 출처(`CVSS_V3`), CVSS 벡터
@@ -110,6 +114,22 @@ CVE-2022-42889  org.apache.commons:commons-text@1.9  used, vulnerable API used
   - 근거: provider(OSV), 조회 시각, 영향 버전, `affectedRanges` 원문
   - references
   - Reachability / Risk / Remediation 섹션은 "Not analyzed yet (Phase N)"으로 표시됩니다.
+
+### 실제 오픈소스 저장소로 확인
+
+픽스처 외에 공개 Spring Boot/Maven 저장소 3개를 얕은 clone(`git clone --depth 1`)으로 받아 CLI와 대시보드로 스캔했습니다(2026-10-17, `--allow-maven` 없이 실행, Maven 미설치). 받은 코드는 빌드하거나 실행하지 않았습니다.
+
+| 저장소 (commit) | Java 파일 | 결과 |
+|---|---|---|
+| [karthikuj/cve-2022-42889-text4shell-docker](https://github.com/karthikuj/cve-2022-42889-text4shell-docker) (`288959e`) | 3 | commons-text 1.8 → CVE-2022-42889 `used`, `vulnerable API used`. 증거 `HelloController.java:5/20/23`이 실제 코드와 일치 |
+| [JoyChou93/java-sec-code](https://github.com/JoyChou93/java-sec-code) (`4711f4e`) | 78 | 의존성 52개, 취약점 157개 중 119개 used. 주석·문자열에만 나오는 commons-collections는 `not used`로 정확히 판정 |
+| [spring-projects/spring-petclinic](https://github.com/spring-projects/spring-petclinic) (`500158f`) | 50 | 50개 모두 경고 없이 파싱. 다만 Spring starter 25개가 부모 POM 관리 버전이라 Maven 없이는 버전을 몰라 사용 판정은 검증 못 함 |
+
+java-sec-code에서 groupId로 패키지를 추정한 매핑이 틀린 경우가 나와 매핑표를 보강했습니다(`0ed1fa1`).
+
+- 실제로 쓰는데 `not used`로 나오던 것: httpclient(`org.apache.http`), commons-httpclient, commons-net, jdom2(`org.jdom2`)
+- 안 쓰는데 `used`로 나오던 것: poi. 실제 import는 poi-ooxml의 `org.apache.poi.xssf`뿐
+- 증거가 섞이던 것: spring-security-web에 core·config 패키지 import가 함께 들어가던 문제
 
 ### 알려진 한계 (Phase 4 기준)
 
@@ -119,6 +139,7 @@ CVE-2022-42889  org.apache.commons:commons-text@1.9  used, vulnerable API used
 - `var`는 `var x = new T(...)`만 해석하고, 변수 이름은 파일 단위로 단순화해서 봅니다.
 - artifact → Java 패키지 매핑은 직접 정리한 매핑표가 우선이고, 없으면 `groupId`를 패키지 접두사로 추정합니다(결과에 `assumed from groupId`로 표시). 같은 groupId를 쓰는 다른 artifact와 구분하지 못할 수 있습니다.
 - 취약 API 목록은 직접 정리한 것이라 현재는 CVE-2022-42889(commons-text)만 들어 있습니다.
+- **API와 구현이 나뉜 라이브러리는 구현 artifact를 `not used`로 판정합니다.** 예를 들어 java-sec-code의 `Log4j.java`는 `log4j-api`의 `LogManager`로 `logger.error(token)`을 호출하지만(전형적인 Log4Shell 패턴), 취약한 `log4j-core`는 import하지 않아 `not used`로 나옵니다. slf4j/logback도 같은 구조입니다. 이 경우를 어떻게 표시할지는 아직 정하지 않았습니다.
 
 그 밖에:
 
@@ -201,9 +222,11 @@ pnpm format           # prettier --write .
 ### API
 
 ```bash
-pnpm dev:api                          # tsx watch — http://127.0.0.1:3000
+pnpm dev:api                          # tsx watch — http://127.0.0.1:${API_PORT} (기본 3000)
 curl http://127.0.0.1:3000/api/health # → {"status":"ok"}
 ```
+
+API 서버는 시작할 때 루트의 `.env`를 읽습니다(`process.loadEnvFile`). 셸에서 설정한 환경 변수가 `.env`보다 우선합니다.
 
 ### 웹 대시보드
 
@@ -216,11 +239,21 @@ pnpm dev:api                        # http://127.0.0.1:3000
 pnpm dev:web                        # http://localhost:5173 (vite, /api → API_PORT(기본 3000)로 proxy)
 ```
 
-3000번 포트를 다른 프로그램(예: Grafana)이 쓰고 있으면, API와 웹을 같은 `API_PORT`로 띄우세요.
+API와 웹 proxy는 모두 같은 순서로 `API_PORT`를 정합니다: 셸 환경 변수 → 루트 `.env` → 3000. 3000번 포트를 다른 프로그램(예: Grafana)이 쓰고 있으면 `.env`의 `API_PORT`를 바꾸는 것이 가장 간단합니다.
 
 ```bash
-API_PORT=3001 pnpm dev:api
-API_PORT=3001 pnpm dev:web
+# .env
+API_PORT=3001
+```
+
+한 번만 다른 포트로 띄우려면 셸에서 지정합니다. PowerShell에서는 `$API_PORT=3001`이 아니라 `$env:API_PORT`로 설정해야 자식 프로세스에 전달됩니다.
+
+```bash
+API_PORT=3001 pnpm dev:api          # Git Bash
+```
+
+```powershell
+$env:API_PORT = 3001; pnpm dev:api  # PowerShell
 ```
 
 `http://127.0.0.1:5173`에서 프로젝트 이름/경로(예: `fixtures/spring-vulnerable-used`)를 등록하고, 대시보드에서 "Run scan" 버튼으로 스캔을 실행하면 같은 `ScanOrchestrator`가 CLI와 동일하게 동작합니다. 빌드만 하려면:

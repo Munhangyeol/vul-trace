@@ -134,11 +134,34 @@
     - 검증: typecheck / test 238개 / build 통과, 픽스처 3종 기대값 확인, 실제 PostgreSQL + 브라우저 end-to-end 확인(새 스캔 후 `TemplateService.java:3/14/15` 증거 표시, 콘솔 에러 없음)
   - 루트 산출물(`result.json`, `sbom.json`, `scratch-sbom.json`)은 커밋에서 제외하기로 결정 (파일은 로컬에 유지)
 
+- 실제 오픈소스 저장소로 Phase 4 검증
+  - 대상: `karthikuj/cve-2022-42889-text4shell-docker`(`288959e`), `JoyChou93/java-sec-code`(`4711f4e`), `spring-projects/spring-petclinic`(`500158f`). 얕은 clone(`--depth 1`, 서브모듈·LFS·심볼릭 링크 끔)으로 `C:\claude-codeulntrace-samples\`에 받고 빌드·실행 없이 정적 분석만 수행. 대시보드에도 세 프로젝트 등록 후 스캔
+  - 변경 이유: 픽스처는 기대값을 알고 만든 코드라, 실제 코드에서 파서와 매핑이 맞는지 확인하기 위함
+  - 결과: Text4Shell PoC는 `HelloController.java:5/20/23` 증거가 실제 코드와 일치(`vulnerable API used`). petclinic 50개 파일은 경고 없이 파싱. java-sec-code에서 groupId 추정 매핑 오류 발견 (아래)
+- groupId와 패키지 이름이 다른 artifact의 매핑 보강 (`0ed1fa1 fix: curate package mappings for artifacts whose packages differ from groupId`)
+  - 변경 파일: `packages/source-analyzer/src/usage/artifactPackages.ts`, `UsageMatcher.test.ts`
+  - 주요 변경 사항: httpclient/fluent-hc/httpcore/httpmime(`org.apache.http.*`), commons-httpclient, commons-net, jdom/jdom2, mysql connector 매핑 추가. poi는 기본 패키지, poi-ooxml은 `xssf`/`xwpf`/`xslf` 등으로 나눠 "가장 긴 접두사" 규칙으로 구분. spring-security core/config/web/crypto를 패키지별로 분리
+  - 결과(java-sec-code): httpclient·commons-httpclient·commons-net·jdom2 `not used` → `used`, poi `used` → `not used`, spring-security-web 증거 40 → 24개(web 패키지만). used 취약점 121 → 119
+- API와 웹 proxy가 루트 `.env`의 `API_PORT`를 읽도록 수정 (`a8aa964 fix: load API_PORT from the root .env in the API and web dev proxy`)
+  - 변경 파일: `apps/api/src/main.ts`, `apps/web/vite.config.ts`, `.env.example` (로컬 `.env`는 `API_PORT=3001`로 변경, 커밋 대상 아님)
+  - 주요 변경 사항: API 시작 시 `process.loadEnvFile`로 루트 `.env` 로드(의존성 추가 없음, 셸 변수 우선). vite proxy도 셸 → 루트 `.env` → 3000 순서로 포트 결정
+- README 갱신: 웹 스크린샷을 현재 UI로 교체(`.claude/resources/web-{project-list,dashboard,vulnerability-list,usage-evidence}.jpg`, 기존 `phase3-*`/`phase4-*` 이미지 삭제), "실제 오픈소스 저장소로 확인" 섹션, Log4j 한계, `API_PORT` 설정 방법(PowerShell `$env:` 포함)
+
 ### 문제 해결
 
 - 문제: `pnpm test`에서 CLI 렌더러 테스트 2개 실패
   - 원인: 요약에 `Used by source` 줄, 취약점 표에 `Used`/`Vuln API` 열을 추가한 뒤 테스트 기대값을 갱신하지 않았음
   - 해결 방법: 기대값 갱신 + 소스 분석 성공 시 요약, 긴 의존성 이름 정렬, 사용 증거 섹션, 미분석 표시 테스트 추가
+
+- 문제: PowerShell에서 `$API_PORT=3001` 후 `pnpm dev:api`를 해도 `listen EACCES: permission denied 127.0.0.1:3000`
+  - 원인: `$API_PORT`는 PowerShell 변수라 자식 프로세스에 전달되지 않음(`$env:API_PORT`가 환경 변수). 또 API는 `.env`를 읽지 않아 `.env`의 `API_PORT`도 무시되고 기본값 3000(로컬 Grafana 사용 중)으로 뜸
+  - 해결 방법: API·웹이 루트 `.env`를 읽게 수정하고 `.env`를 `API_PORT=3001`로 변경 (`a8aa964`)
+- 문제: 백그라운드로 띄운 개발 서버를 멈춰도 3001/5173 포트가 계속 잡혀 있거나, 재시작 시 `EADDRINUSE`·`EFAULT`
+  - 원인: Windows에서 셸 작업만 종료되고 하위 `node`(tsx watch / vite) 프로세스가 남음
+  - 해결 방법: 부모 프로세스 체인을 확인해 남은 `node` 프로세스를 직접 종료한 뒤 재시작
+- 문제: pre-commit 훅에서 `JavaSourceAnalyzer.test.ts`의 임시 파일 테스트가 5초 제한 초과로 1회 실패
+  - 원인: 확인 못 함. 단독 실행 시 50~70ms라 다른 테스트와 병렬 실행 중 파일 I/O 지연으로 추정
+  - 해결 방법: 코드 변경 없이 재시도해 통과. 재발하면 해당 테스트 timeout 상향 검토
 
 ### 미완료
 
@@ -146,6 +169,10 @@
 - CLI `report` 사용 증거 섹션이 사용되지 않은 finding도 모두 출력해 길어짐
 - 취약 API 목록은 CVE-2022-42889 하나뿐 (나머지는 `NO_API_INFO`)
 - `queries.ts`, `ProjectDashboardPage.tsx`, `VulnerabilityDetailPage.tsx`의 기존 Prettier 경고는 그대로 둠
+- API와 구현이 나뉜 라이브러리(log4j-api → log4j-core, slf4j → logback)에서 구현 artifact가 `not used`로 판정되는 문제 — 표시 방식 결정 필요 (java-sec-code `Log4j.java:20`의 Log4Shell 패턴이 log4j-core `not used`로 나옴)
+- 패키지 이름이 될 수 없는 groupId(하이픈 포함)는 추정하지 말고 "매핑 모름"으로 표시하는 방안 검토
+- 웹 UI 스타일 작업(`App.tsx`, `main.tsx`, `styles.css`, 화면 4개)은 미커밋 상태. README 스크린샷은 이 상태의 화면으로 찍음
+- 루트 `result.json`, `sbom.json`, `scratch-sbom.json`은 커밋에서 제외(로컬 유지)
 
 ### 다음 작업
 
