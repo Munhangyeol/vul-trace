@@ -27,7 +27,7 @@ export function ProjectListPage() {
     <section>
       <h1>Projects</h1>
 
-      <form onSubmit={handleSubmit}>
+      <form className="inline-form" onSubmit={handleSubmit}>
         <label>
           Name
           <input value={name} onChange={(e) => setName(e.target.value)} required />
@@ -50,42 +50,49 @@ export function ProjectListPage() {
 
       {error && <p role="alert">Failed to load projects.</p>}
 
-      <table>
-        <thead>
-          <tr>
-            <th>Project</th>
-            <th>Last Scan</th>
-            <th>Dependency Count</th>
-            <th>Vulnerability Count</th>
-          </tr>
-        </thead>
-        <tbody>
-          {isLoading && (
+      <div className="table-wrap">
+        <table>
+          <thead>
             <tr>
-              <td colSpan={4}>Loading…</td>
+              <th>Project</th>
+              <th>Last Scan</th>
+              <th className="num">Dependency Count</th>
+              <th className="num">Vulnerability Count</th>
             </tr>
-          )}
-          {!isLoading && (projects?.length ?? 0) === 0 && (
-            <tr>
-              <td colSpan={4}>No projects yet.</td>
-            </tr>
-          )}
-          {projects?.map((project) => (
-            <tr key={project.id}>
-              <td>
-                <Link to={`/projects/${project.id}`}>{project.name}</Link>
-              </td>
-              <td>
-                {project.latestScan
-                  ? `${project.latestScan.state} (${formatDate(project.latestScan.finishedAt)})`
-                  : '—'}
-              </td>
-              <td>{project.latestScan?.dependencyCount ?? '—'}</td>
-              <td>{project.latestScan?.vulnerabilityCount ?? '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {isLoading && (
+              <tr>
+                <td colSpan={4}>Loading…</td>
+              </tr>
+            )}
+            {!isLoading && (projects?.length ?? 0) === 0 && (
+              <tr>
+                <td colSpan={4}>No projects yet.</td>
+              </tr>
+            )}
+            {projects?.map((project) => (
+              <tr key={project.id}>
+                <td>
+                  <Link to={`/projects/${project.id}`}>{project.name}</Link>
+                </td>
+                <td>
+                  {project.latestScan ? (
+                    <>
+                      <span className="badge">{project.latestScan.state}</span>{' '}
+                      <span className="muted">{formatDate(project.latestScan.finishedAt)}</span>
+                    </>
+                  ) : (
+                    '—'
+                  )}
+                </td>
+                <td className="num">{project.latestScan?.dependencyCount ?? '—'}</td>
+                <td className="num">{project.latestScan?.vulnerabilityCount ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }

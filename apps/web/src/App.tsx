@@ -12,7 +12,9 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <header>
-          <Link to="/">VulnTrace</Link>
+          <Link to="/" className="brand">
+            VulnTrace
+          </Link>
         </header>
         <main>
           <Routes>

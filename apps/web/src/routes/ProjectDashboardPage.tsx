@@ -20,11 +20,15 @@ export function ProjectDashboardPage() {
 
   return (
     <section>
-      <h1>{summary.project.name}</h1>
-
-      <button type="button" disabled={runScan.isPending} onClick={() => runScan.mutate({})}>
-        {runScan.isPending ? 'Scanning…' : 'Run scan'}
-      </button>
+      <Link to="/" className="breadcrumb">
+        ← Projects
+      </Link>
+      <div className="page-header">
+        <h1>{summary.project.name}</h1>
+        <button type="button" disabled={runScan.isPending} onClick={() => runScan.mutate({})}>
+          {runScan.isPending ? 'Scanning…' : 'Run scan'}
+        </button>
+      </div>
       {runScan.isError && (
         <p role="alert">
           {runScan.error instanceof ApiError
@@ -33,7 +37,7 @@ export function ProjectDashboardPage() {
         </p>
       )}
 
-      <dl>
+      <dl className="stat-grid">
         <div>
           <dt>Dependencies</dt>
           <dd>{scan ? scan.dependencies : '—'}</dd>
@@ -52,7 +56,9 @@ export function ProjectDashboardPage() {
         </div>
         <div>
           <dt>Used Vulnerabilities</dt>
-          <dd title={scan && scan.usedVulnerabilities === null ? USAGE_NOT_ANALYZED_TITLE : undefined}>
+          <dd
+            title={scan && scan.usedVulnerabilities === null ? USAGE_NOT_ANALYZED_TITLE : undefined}
+          >
             {scan?.usedVulnerabilities ?? '—'}
           </dd>
         </div>
@@ -68,7 +74,8 @@ export function ProjectDashboardPage() {
         <>
           <h2>Latest scan</h2>
           <p>
-            State: <strong>{scan.state}</strong> · Finished: {formatDate(scan.finishedAt)}
+            State: <span className="badge">{scan.state}</span>{' '}
+            <span className="muted">· Finished: {formatDate(scan.finishedAt)}</span>
           </p>
           {(scan.state === 'PARTIAL' || scan.state === 'FAILED') && (
             <p role="alert">
@@ -76,26 +83,28 @@ export function ProjectDashboardPage() {
             </p>
           )}
 
-          <table>
-            <thead>
-              <tr>
-                <th>Stage</th>
-                <th>Status</th>
-                <th>Reason</th>
-              </tr>
-            </thead>
-            <tbody>
-              {scan.stages.map((stage) => (
-                <tr key={stage.stage}>
-                  <td>{stage.stage}</td>
-                  <td>{stage.status}</td>
-                  <td>{stage.reason ?? '—'}</td>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Stage</th>
+                  <th>Status</th>
+                  <th>Reason</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {scan.stages.map((stage) => (
+                  <tr key={stage.stage}>
+                    <td>{stage.stage}</td>
+                    <td>{stage.status}</td>
+                    <td>{stage.reason ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-          <p>
+          <p className="muted">
             Vulnerability coverage: checked {scan.coverage.checked}, not checked{' '}
             {scan.coverage.notChecked}, failed {scan.coverage.failed}
           </p>
@@ -114,7 +123,9 @@ export function ProjectDashboardPage() {
             </>
           )}
 
-          <Link to={`/projects/${projectId}/vulnerabilities`}>Vulnerabilities</Link>
+          <Link to={`/projects/${projectId}/vulnerabilities`} className="link-button">
+            View vulnerabilities →
+          </Link>
         </>
       )}
     </section>
