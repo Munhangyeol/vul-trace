@@ -3,7 +3,8 @@ import { ApiError } from '../api/client';
 import { useProjectSummary, useRunScan } from '../api/queries';
 import { formatDate } from '../format/date';
 
-const NOT_ANALYZED_TITLE = 'Not analyzed yet — see CLAUDE.md Phase 4 (used) / Phase 6 (reachable)';
+const NOT_ANALYZED_TITLE = 'Not analyzed yet — see CLAUDE.md Phase 6 (reachable)';
+const USAGE_NOT_ANALYZED_TITLE = 'Source usage was not analyzed for this scan';
 
 export function ProjectDashboardPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -51,7 +52,9 @@ export function ProjectDashboardPage() {
         </div>
         <div>
           <dt>Used Vulnerabilities</dt>
-          <dd title={NOT_ANALYZED_TITLE}>—</dd>
+          <dd title={scan && scan.usedVulnerabilities === null ? USAGE_NOT_ANALYZED_TITLE : undefined}>
+            {scan?.usedVulnerabilities ?? '—'}
+          </dd>
         </div>
         <div>
           <dt>Reachable Vulnerabilities</dt>

@@ -119,8 +119,14 @@ model ProjectVulnerability {
   provider            String   @default("OSV")
   queriedAt           DateTime @map("queried_at")
   /// OSV affected[].ranges[] verbatim — the evidence for "why affected" (CLAUDE.md §6.2).
-  affectedRanges       Json     @default("[]") @map("affected_ranges")
-  affectedVersions     String[] @default([]) @map("affected_versions")
+  affectedRanges      Json     @default("[]") @map("affected_ranges")
+  affectedVersions    String[] @default([]) @map("affected_versions")
+  /// Phase 4: MAIN sources use the dependency. null = source usage not analyzed (not the same as false).
+  used                Boolean?
+  /// Phase 4: USED | NOT_DETECTED | NO_API_INFO. null = not analyzed.
+  vulnerableApiStatus String?  @map("vulnerable_api_status")
+  /// Phase 4 basis for the conclusion: { packageMapping, vulnerableApis }. Evidence rows live in source_usages.
+  usageAnalysis       Json?    @map("usage_analysis")
 
   scan              ScanJob            @relation(fields: [scanId], references: [id], onDelete: Cascade)
   projectDependency ProjectDependency  @relation(fields: [projectDependencyId], references: [id], onDelete: Cascade)
@@ -134,19 +140,25 @@ model ProjectVulnerability {
 }
 
 model SourceUsage {
-  id                     String @id @default(uuid())
-  scanId                 String @map("scan_id")
-  projectVulnerabilityId String @map("project_vulnerability_id")
-  filePath               String @map("file_path")
+  id                     String  @id @default(uuid())
+  scanId                 String  @map("scan_id")
+  projectVulnerabilityId String  @map("project_vulnerability_id")
+  filePath               String  @map("file_path")
   line                   Int
+  column                 Int?
   snippet                String
   /// IMPORT | PACKAGE_REFERENCE | OBJECT_CONSTRUCTION | METHOD_CALL
-  usageKind              String @map("usage_kind")
+  usageKind              String  @map("usage_kind")
   symbol                 String
+  /// MAIN (src/main/java) | TEST (src/test/java)
+  sourceSet              String  @default("MAIN") @map("source_set")
+  /// Matches a known vulnerable API of this finding's vulnerability.
+  vulnerableApi          Boolean @default(false) @map("vulnerable_api")
 
   scan                 ScanJob              @relation(fields: [scanId], references: [id], onDelete: Cascade)
   projectVulnerability ProjectVulnerability @relation(fields: [projectVulnerabilityId], references: [id], onDelete: Cascade)
 
+  @@index([projectVulnerabilityId])
   @@map("source_usages")
 }
 

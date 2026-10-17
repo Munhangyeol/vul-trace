@@ -4,6 +4,8 @@ import type { ProjectDependency, ScanStageResult, VulnerabilityFinding } from '@
 import type { DependencyAnalysisResult, DependencyAnalyzer } from '@vulntrace/dependency-analyzer';
 import type { CycloneDxBom, SbomBuilder, SbomBuildResult } from '@vulntrace/sbom';
 import type { BatchVulnerabilityResult, VulnerabilityProvider } from '@vulntrace/vulnerability';
+import { LightweightJavaParser } from '@vulntrace/source-analyzer';
+import type { JavaAnalysisResult, JavaSourceAnalyzer } from '@vulntrace/source-analyzer';
 import { deriveScanState, ScanOrchestrator } from './ScanOrchestrator.js';
 import { silentScanLogger } from './logging/ScanLogger.js';
 
@@ -56,6 +58,13 @@ const unusedVulnerabilityProvider: VulnerabilityProvider = {
   },
 };
 
+function fakeSourceAnalyzer(analyzeProject: JavaSourceAnalyzer['analyzeProject']): JavaSourceAnalyzer {
+  return { analyzeProject };
+}
+const emptySourceAnalyzer = fakeSourceAnalyzer(async (projectPath) =>
+  ok({ projectPath, files: [], skippedFiles: [], warnings: [] }),
+);
+
 function fakeSbomBuilder(build: () => ReturnType<SbomBuilder['build']>): SbomBuilder {
   return { build };
 }
@@ -107,6 +116,7 @@ describe('ScanOrchestrator.run', () => {
       dependencyAnalyzer: fakeAnalyzer(async () => ok(analysisResult())),
       sbomBuilder: unusedSbomBuilder,
       vulnerabilityProvider: unusedVulnerabilityProvider,
+      sourceAnalyzer: emptySourceAnalyzer,
       logger: silentScanLogger,
     });
     const report = await orchestrator.run('/project');
@@ -133,6 +143,7 @@ describe('ScanOrchestrator.run', () => {
       ),
       sbomBuilder: unusedSbomBuilder,
       vulnerabilityProvider: unusedVulnerabilityProvider,
+      sourceAnalyzer: emptySourceAnalyzer,
       logger: silentScanLogger,
     });
     const report = await orchestrator.run('/project');
@@ -152,6 +163,7 @@ describe('ScanOrchestrator.run', () => {
       ),
       sbomBuilder: unusedSbomBuilder,
       vulnerabilityProvider: unusedVulnerabilityProvider,
+      sourceAnalyzer: emptySourceAnalyzer,
       logger: silentScanLogger,
     });
     const report = await orchestrator.run('/project');
@@ -171,6 +183,7 @@ describe('ScanOrchestrator.run', () => {
       ),
       sbomBuilder: unusedSbomBuilder,
       vulnerabilityProvider: unusedVulnerabilityProvider,
+      sourceAnalyzer: emptySourceAnalyzer,
       logger: silentScanLogger,
     });
     const report = await orchestrator.run('/missing');
@@ -187,6 +200,7 @@ describe('ScanOrchestrator.run', () => {
       ),
       sbomBuilder: unusedSbomBuilder,
       vulnerabilityProvider: unusedVulnerabilityProvider,
+      sourceAnalyzer: emptySourceAnalyzer,
       logger: silentScanLogger,
     });
     const report = await orchestrator.run('/project');
@@ -203,7 +217,8 @@ describe('ScanOrchestrator.run', () => {
         ),
         sbomBuilder: unusedSbomBuilder,
         vulnerabilityProvider: unusedVulnerabilityProvider,
-        logger: silentScanLogger,
+        sourceAnalyzer: emptySourceAnalyzer,
+      logger: silentScanLogger,
       });
       const report = await orchestrator.run('/project');
 
@@ -224,7 +239,8 @@ describe('ScanOrchestrator.run', () => {
         dependencyAnalyzer: fakeAnalyzer(async () => ok(analysisResult({ dependencies: [] }))),
         sbomBuilder: unusedSbomBuilder,
         vulnerabilityProvider: unusedVulnerabilityProvider,
-        logger: silentScanLogger,
+        sourceAnalyzer: emptySourceAnalyzer,
+      logger: silentScanLogger,
       });
       const report = await orchestrator.run('/project');
 
@@ -244,7 +260,8 @@ describe('ScanOrchestrator.run', () => {
         dependencyAnalyzer: fakeAnalyzer(async () => ok(analysisResult({ dependencies }))),
         sbomBuilder: fakeSbomBuilder(() => ok(bom([{ type: 'library', purl: dependencies[0]!.coordinate.purl, group: 'org.apache.commons', name: 'commons-text', version: '1.9', scope: 'required' }]))),
         vulnerabilityProvider: unusedVulnerabilityProvider,
-        logger: silentScanLogger,
+        sourceAnalyzer: emptySourceAnalyzer,
+      logger: silentScanLogger,
       });
       const report = await orchestrator.run('/project', { allowMaven: false, checkVulnerabilities: false });
 
@@ -263,7 +280,8 @@ describe('ScanOrchestrator.run', () => {
         dependencyAnalyzer: fakeAnalyzer(async () => ok(analysisResult({ dependencies }))),
         sbomBuilder: fakeSbomBuilder(() => err(new AnalysisError('PARSE_ERROR', 'bad timestamp'))),
         vulnerabilityProvider: unusedVulnerabilityProvider,
-        logger: silentScanLogger,
+        sourceAnalyzer: emptySourceAnalyzer,
+      logger: silentScanLogger,
       });
       const report = await orchestrator.run('/project');
 
@@ -290,7 +308,8 @@ describe('ScanOrchestrator.run', () => {
         vulnerabilityProvider: fakeVulnerabilityProvider(async () =>
           err(new AnalysisError('EXTERNAL_SERVICE_FAILED', 'OSV unreachable')),
         ),
-        logger: silentScanLogger,
+        sourceAnalyzer: emptySourceAnalyzer,
+      logger: silentScanLogger,
       });
       const report = await orchestrator.run('/project');
 
@@ -331,12 +350,13 @@ describe('ScanOrchestrator.run', () => {
           ok(bom([{ type: 'library', purl: dependencies[0]!.coordinate.purl, group: 'org.apache.commons', name: 'commons-text', version: '1.9', scope: 'required' }])),
         ),
         vulnerabilityProvider: fakeVulnerabilityProvider(async () => ok(batchResult)),
-        logger: silentScanLogger,
+        sourceAnalyzer: emptySourceAnalyzer,
+      logger: silentScanLogger,
       });
       const report = await orchestrator.run('/project');
 
       expect(report.state).toBe('PARTIAL');
-      expect(report.findings).toEqual([finding]);
+      expect(report.findings).toEqual([{ ...finding, usage: expect.objectContaining({ used: false }) }]);
       expect(report.vulnerabilityCoverage).toEqual({ checked: 1, notChecked: 0, failed: 1 });
       expect(report.stages).toContainEqual({
         stage: 'VULNERABILITY',
@@ -369,15 +389,137 @@ describe('ScanOrchestrator.run', () => {
         vulnerabilityProvider: fakeVulnerabilityProvider(async () =>
           ok({ findings: [finding], failedPackages: [], warnings: [] }),
         ),
-        logger: silentScanLogger,
+        sourceAnalyzer: emptySourceAnalyzer,
+      logger: silentScanLogger,
       });
       const report = await orchestrator.run('/project');
 
       expect(report.state).toBe('COMPLETED');
       expect(report.stages).toContainEqual({ stage: 'SBOM', status: 'SUCCEEDED' });
       expect(report.stages).toContainEqual({ stage: 'VULNERABILITY', status: 'SUCCEEDED' });
-      expect(report.findings).toEqual([finding]);
+      expect(report.findings).toEqual([{ ...finding, usage: expect.objectContaining({ used: false }) }]);
       expect(report.vulnerabilityCoverage).toEqual({ checked: 1, notChecked: 0, failed: 0 });
+    });
+  });
+
+  describe('SOURCE_USAGE stage (Phase 4)', () => {
+    const purl = 'pkg:maven/org.apache.commons/commons-text@1.9';
+    const dependencies = [dep(purl)];
+    const finding: VulnerabilityFinding = {
+      vulnerability: {
+        id: 'GHSA-599f-7c49-w659',
+        aliases: ['CVE-2022-42889'],
+        summary: 'x',
+        severity: 'CRITICAL',
+        severitySource: 'CVSS_V3',
+        modified: '2024-01-01T00:00:00Z',
+        references: [],
+      },
+      package: { ecosystem: 'Maven', name: 'org.apache.commons:commons-text', version: '1.9', purl },
+      fixedVersions: ['1.10.0'],
+      evidence: { provider: 'OSV', queriedAt: '2026-01-01T00:00:00Z', affectedRanges: [], affectedVersions: [] },
+    };
+
+    const orchestratorWith = (sourceAnalyzer: JavaSourceAnalyzer, dependencyAnalyzer?: DependencyAnalyzer) =>
+      new ScanOrchestrator({
+        dependencyAnalyzer: dependencyAnalyzer ?? fakeAnalyzer(async () => ok(analysisResult({ dependencies }))),
+        sbomBuilder: fakeSbomBuilder(() =>
+          ok(bom([{ type: 'library', purl, group: 'org.apache.commons', name: 'commons-text', version: '1.9', scope: 'required' }])),
+        ),
+        vulnerabilityProvider: fakeVulnerabilityProvider(async () =>
+          ok({ findings: [finding], failedPackages: [], warnings: [] }),
+        ),
+        sourceAnalyzer,
+        logger: silentScanLogger,
+      });
+
+    const javaAnalysis = (projectPath: string): JavaAnalysisResult => ({
+      projectPath,
+      files: [
+        {
+          ...new LightweightJavaParser().parse(
+            'src/main/java/demo/TemplateService.java',
+            [
+              'package demo;',
+              'import org.apache.commons.text.StringSubstitutor;',
+              'class TemplateService {',
+              '  String render(String t) { return StringSubstitutor.createInterpolator().replace(t); }',
+              '}',
+            ].join('\n'),
+          ),
+          sourceSet: 'MAIN',
+        },
+      ],
+      skippedFiles: [{ filePath: 'src/main/java/demo/Huge.java', reason: 'too large' }],
+      warnings: ['Java file skipped: src/main/java/demo/Huge.java — too large'],
+    });
+
+    it('attaches usage evidence to findings and records SOURCE_USAGE SUCCEEDED', async () => {
+      const report = await orchestratorWith(fakeSourceAnalyzer(async (p) => ok(javaAnalysis(p)))).run('/project');
+
+      expect(report.state).toBe('COMPLETED');
+      expect(report.stages).toContainEqual({ stage: 'SOURCE_USAGE', status: 'SUCCEEDED' });
+      expect(report.findings[0]?.usage).toMatchObject({
+        used: true,
+        vulnerableApi: 'USED',
+        packageMapping: { basis: 'CURATED' },
+      });
+      expect(report.findings[0]?.usage?.usages.map((u) => [u.kind, u.evidence.location.line, u.vulnerableApi])).toEqual([
+        ['IMPORT', 2, false],
+        ['METHOD_CALL', 4, true],
+      ]);
+      expect(report.sourceAnalysis).toEqual({
+        mainFiles: 1,
+        testFiles: 0,
+        skippedFiles: [{ filePath: 'src/main/java/demo/Huge.java', reason: 'too large' }],
+        usedDependencies: 1,
+      });
+      expect(report.warnings).toContain('Java file skipped: src/main/java/demo/Huge.java — too large');
+    });
+
+    it('is PARTIAL when source analysis fails, keeping findings without usage', async () => {
+      const report = await orchestratorWith(
+        fakeSourceAnalyzer(async () => err(new AnalysisError('PROJECT_NOT_FOUND', 'gone'))),
+      ).run('/project');
+
+      expect(report.state).toBe('PARTIAL');
+      expect(report.stages).toContainEqual({
+        stage: 'SOURCE_USAGE',
+        status: 'FAILED',
+        reason: 'PROJECT_NOT_FOUND: gone',
+      });
+      expect(report.findings).toEqual([finding]);
+      expect(report.findings[0]?.usage).toBeUndefined();
+    });
+
+    it('records a thrown analyzer error as a FAILED stage instead of crashing the scan', async () => {
+      const report = await orchestratorWith(
+        fakeSourceAnalyzer(async () => {
+          throw new Error('boom');
+        }),
+      ).run('/project');
+
+      expect(report.stages).toContainEqual({
+        stage: 'SOURCE_USAGE',
+        status: 'FAILED',
+        reason: 'source analysis threw: boom',
+      });
+      expect(report.findings).toEqual([finding]);
+    });
+
+    it('is SKIPPED when the dependency analysis failed', async () => {
+      const report = await orchestratorWith(
+        fakeSourceAnalyzer(async () => {
+          throw new Error('should not be called');
+        }),
+        fakeAnalyzer(async () => err(new AnalysisError('PROJECT_NOT_FOUND', 'no pom.xml'))),
+      ).run('/project');
+
+      expect(report.stages).toContainEqual({
+        stage: 'SOURCE_USAGE',
+        status: 'SKIPPED',
+        reason: 'no dependency analysis result',
+      });
     });
   });
 });

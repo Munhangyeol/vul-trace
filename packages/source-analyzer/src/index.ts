@@ -1,4 +1,12 @@
 export { LightweightJavaSourceAnalyzer } from './JavaSourceAnalyzer.js';
-export type { JavaSourceAnalyzer } from './JavaSourceAnalyzer.js';
+export type { JavaSourceAnalyzer, LightweightJavaSourceAnalyzerOptions } from './JavaSourceAnalyzer.js';
 export type { JavaSourceParser } from './parser/JavaSourceParser.js';
+export { LightweightJavaParser } from './parser/LightweightJavaParser.js';
+export { scanJavaFiles, classifySourceSet } from './scanner/JavaFileScanner.js';
+export type { JavaFileScanLimits, JavaFileScanResult } from './scanner/JavaFileScanner.js';
+export { matchDependencyUsages } from './usage/UsageMatcher.js';
+export type { DependencyRef, DependencyUsage, MatchedUsage } from './usage/UsageMatcher.js';
+export { assessFindingUsage } from './usage/assessFindingUsage.js';
+export { resolvePackageMapping } from './usage/artifactPackages.js';
+export { findVulnerableApis } from './usage/vulnerableApis.js';
 export type * from './types.js';

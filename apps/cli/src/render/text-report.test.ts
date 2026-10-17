@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { ScanReport } from '@vulntrace/core';
-import type { VulnerabilityFinding } from '@vulntrace/shared';
-import { renderDependencies, renderSummary, renderVulnerabilities, renderVulnerabilityTable } from './text-report.js';
+import type { FindingUsage, VulnerabilityFinding } from '@vulntrace/shared';
+import {
+  renderDependencies,
+  renderSourceUsage,
+  renderSummary,
+  renderVulnerabilities,
+  renderVulnerabilityTable,
+} from './text-report.js';
 
 const baseReport: ScanReport = {
   projectPath: '/repo/fixtures/spring-vulnerable-used',
@@ -64,6 +70,54 @@ const finding: VulnerabilityFinding = {
   },
 };
 
+const usedUsage: FindingUsage = {
+  used: true,
+  vulnerableApi: 'USED',
+  packageMapping: { packages: ['org.apache.commons.text'], basis: 'CURATED' },
+  vulnerableApis: [{ type: 'org.apache.commons.text.StringSubstitutor', method: 'createInterpolator' }],
+  usages: [
+    {
+      kind: 'IMPORT',
+      symbol: 'org.apache.commons.text.StringSubstitutor',
+      dependencyPurl: 'pkg:maven/org.apache.commons/commons-text@1.9',
+      sourceSet: 'MAIN',
+      vulnerableApi: false,
+      evidence: {
+        location: { filePath: 'src/main/java/com/example/demo/TemplateService.java', line: 3 },
+        snippet: 'import org.apache.commons.text.StringSubstitutor;',
+      },
+    },
+    {
+      kind: 'METHOD_CALL',
+      symbol: 'org.apache.commons.text.StringSubstitutor#createInterpolator',
+      dependencyPurl: 'pkg:maven/org.apache.commons/commons-text@1.9',
+      sourceSet: 'MAIN',
+      vulnerableApi: true,
+      evidence: {
+        location: { filePath: 'src/main/java/com/example/demo/TemplateService.java', line: 14 },
+        snippet: 'StringSubstitutor.createInterpolator()',
+      },
+    },
+    {
+      kind: 'IMPORT',
+      symbol: 'org.apache.commons.text.StringSubstitutor',
+      dependencyPurl: 'pkg:maven/org.apache.commons/commons-text@1.9',
+      sourceSet: 'TEST',
+      vulnerableApi: false,
+      evidence: {
+        location: { filePath: 'src/test/java/com/example/demo/TemplateServiceTest.java', line: 5 },
+        snippet: 'import org.apache.commons.text.StringSubstitutor;',
+      },
+    },
+  ],
+};
+
+const usageReport: ScanReport = {
+  ...baseReport,
+  stages: baseReport.stages.map((s) => (s.stage === 'SOURCE_USAGE' ? { stage: s.stage, status: 'SUCCEEDED' } : s)),
+  sourceAnalysis: { mainFiles: 3, testFiles: 1, skippedFiles: [], usedDependencies: 1 },
+};
+
 describe('renderSummary', () => {
   it('prints the CLAUDE.md summary block for a completed scan with findings', () => {
     const report: ScanReport = { ...baseReport, findings: [finding] };
@@ -76,8 +130,14 @@ describe('renderSummary', () => {
         'Vulnerabilities:   1',
         'Critical:          1',
         'High:              0',
+        'Used by source:    unavailable (SKIPPED — not implemented (Phase 4))',
       ].join('\n'),
     );
+  });
+
+  it('prints the used-by-source count once SOURCE_USAGE succeeded', () => {
+    const report: ScanReport = { ...usageReport, findings: [{ ...finding, usage: usedUsage }] };
+    expect(renderSummary(report)).toContain('Used by source:    1');
   });
 
   it('notes unresolved dependencies', () => {
@@ -133,10 +193,26 @@ describe('renderVulnerabilityTable', () => {
     const report: ScanReport = { ...baseReport, findings: [finding] };
     expect(renderVulnerabilityTable(report)).toBe(
       [
-        'ID               Severity  CVSS  Dependency                                Fixed',
-        'CVE-2022-42889   CRITICAL  9.8   org.apache.commons:commons-text@1.9      1.10.0',
+        'ID              Severity  CVSS  Dependency                           Used  Vuln API  Fixed',
+        'CVE-2022-42889  CRITICAL  9.8   org.apache.commons:commons-text@1.9  -     -         1.10.0',
       ].join('\n'),
     );
+  });
+
+  it('widens columns so long dependency names and API labels keep later columns aligned', () => {
+    const longFinding: VulnerabilityFinding = {
+      ...finding,
+      vulnerability: { ...finding.vulnerability, id: 'GHSA-xxxx-yyyy-zzzz', aliases: [], severity: 'HIGH', cvssScore: 7.5 },
+      package: { ...finding.package, name: 'com.fasterxml.jackson.core:jackson-databind', version: '2.15.2' },
+      fixedVersions: ['2.18.8'],
+      usage: { ...usedUsage, used: false, vulnerableApi: 'NOT_DETECTED', usages: [] },
+    };
+    const report: ScanReport = { ...usageReport, findings: [{ ...finding, usage: usedUsage }, longFinding] };
+    expect(renderVulnerabilityTable(report).split('\n')).toEqual([
+      'ID                   Severity  CVSS  Dependency                                          Used  Vuln API      Fixed',
+      'CVE-2022-42889       CRITICAL  9.8   org.apache.commons:commons-text@1.9                 yes   used          1.10.0',
+      'GHSA-xxxx-yyyy-zzzz  HIGH      7.5   com.fasterxml.jackson.core:jackson-databind@2.15.2  no    not detected  2.18.8',
+    ]);
   });
 
   it('is empty when there are no findings', () => {
@@ -157,5 +233,28 @@ describe('renderVulnerabilities', () => {
     const text = renderVulnerabilities(report);
     expect(text).toContain('Vulnerabilities: 1   (checked 1 dependencies)');
     expect(text).toContain('CVE-2022-42889');
+  });
+});
+
+describe('renderSourceUsage', () => {
+  it('prints file:line evidence with vulnerable API and test markers', () => {
+    const report: ScanReport = { ...usageReport, findings: [{ ...finding, usage: usedUsage }] };
+    expect(renderSourceUsage(report)).toBe(
+      [
+        'Source usage: 4 Java files analyzed (3 main, 1 test)',
+        '',
+        'CVE-2022-42889  org.apache.commons:commons-text@1.9  used, vulnerable API used',
+        '  packages: org.apache.commons.text (curated mapping)',
+        '  vulnerable APIs checked: org.apache.commons.text.StringSubstitutor#createInterpolator',
+        '  src/main/java/com/example/demo/TemplateService.java:3      IMPORT       org.apache.commons.text.StringSubstitutor',
+        '  src/main/java/com/example/demo/TemplateService.java:14     METHOD_CALL  org.apache.commons.text.StringSubstitutor#createInterpolator  [vulnerable API]',
+        '  src/test/java/com/example/demo/TemplateServiceTest.java:5  IMPORT       org.apache.commons.text.StringSubstitutor  [test]',
+      ].join('\n'),
+    );
+  });
+
+  it('reports unavailable when SOURCE_USAGE did not succeed', () => {
+    const report: ScanReport = { ...baseReport, findings: [finding] };
+    expect(renderSourceUsage(report)).toBe('Source usage: unavailable (SKIPPED — not implemented (Phase 4))');
   });
 });

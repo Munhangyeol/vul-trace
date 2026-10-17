@@ -136,14 +136,16 @@ pnpm db:up && npx prisma migrate dev && pnpm dev:api && pnpm dev:web
 
 ## 5. Phase 3 Definition of Done
 
-- [ ] `vulntrace scan`이 Dependencies / Vulnerabilities / Critical / High 요약을 출력
-- [ ] `vulntrace report`가 텍스트와 JSON 리포트를 모두 지원
-- [ ] 집계·정렬 로직이 core 한 곳에만 있고 CLI와 API가 함께 사용
-- [ ] 웹이 shared의 DTO 타입만으로 API를 호출 (Prisma 모델 노출 없음)
-- [ ] Project List / Dashboard / Vulnerability List / Detail 화면이 실제 DB 데이터를 표시
-- [ ] 웹에서 프로젝트 등록과 스캔 실행이 가능
-- [ ] 미확정 의존성 수와 단계 실패 사유가 웹에도 표시
-- [ ] Used / Reachable / Risk는 지어낸 값 없이 "미분석"으로 표시
+- [x] `vulntrace scan`이 Dependencies / Vulnerabilities / Critical / High 요약을 출력
+- [x] `vulntrace report`가 텍스트와 JSON 리포트를 모두 지원
+- [x] 집계·정렬 로직이 core 한 곳에만 있고 CLI와 API가 함께 사용
+- [x] 웹이 shared의 DTO 타입만으로 API를 호출 (Prisma 모델 노출 없음)
+- [x] Project List / Dashboard / Vulnerability List / Detail 화면이 실제 DB 데이터를 표시
+- [x] 웹에서 프로젝트 등록과 스캔 실행이 가능
+- [x] 미확정 의존성 수와 단계 실패 사유가 웹에도 표시
+- [x] Used / Reachable / Risk는 지어낸 값 없이 "미분석"으로 표시
+
+확인: 2026-10-04 실제 PostgreSQL + 브라우저 end-to-end (커밋 `7a11c4d`, 문서·스크린샷 `b43028d`). 계획 3c-15의 스캔 옵션 선택 UI와 3b-10의 저장 트랜잭션은 구현하지 않았고 README "알려진 한계"에 기록함.
 
 ## 범위 밖
 

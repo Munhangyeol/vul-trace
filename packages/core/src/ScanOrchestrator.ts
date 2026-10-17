@@ -15,11 +15,22 @@ import type {
 } from '@vulntrace/dependency-analyzer';
 import type { CycloneDxBom, SbomBuilder } from '@vulntrace/sbom';
 import type { VulnerabilityProvider } from '@vulntrace/vulnerability';
+import { assessFindingUsage, matchDependencyUsages } from '@vulntrace/source-analyzer';
+import type { JavaSourceAnalyzer, SkippedJavaFile } from '@vulntrace/source-analyzer';
 import type { ScanLogger } from './logging/ScanLogger.js';
 
 export interface ScanOptions extends DependencyAnalysisOptions {
   /** Whether to query OSV for the resolved dependencies. Defaults to true (CLAUDE.md §7 Phase 2 D3). */
   checkVulnerabilities?: boolean;
+}
+
+/** What the SOURCE_USAGE stage actually covered — evidence for "not used" conclusions. */
+export interface SourceAnalysisSummary {
+  mainFiles: number;
+  testFiles: number;
+  skippedFiles: SkippedJavaFile[];
+  /** Resolved dependencies with at least one usage in MAIN sources. */
+  usedDependencies: number;
 }
 
 export interface ScanReport {
@@ -32,8 +43,10 @@ export interface ScanReport {
   dependencies: ProjectDependency[];
   unresolvedDependencies: UnresolvedDependency[];
   sbom?: CycloneDxBom;
+  /** Findings carry `usage` once the SOURCE_USAGE stage succeeded (Phase 4). */
   findings: VulnerabilityFinding[];
   vulnerabilityCoverage: VulnerabilityCoverage;
+  sourceAnalysis?: SourceAnalysisSummary;
   warnings: string[];
 }
 
@@ -41,13 +54,13 @@ export interface ScanOrchestratorDeps {
   dependencyAnalyzer: DependencyAnalyzer;
   sbomBuilder: SbomBuilder;
   vulnerabilityProvider: VulnerabilityProvider;
+  sourceAnalyzer: JavaSourceAnalyzer;
   logger: ScanLogger;
   now?: () => Date;
 }
 
 /** Stages not wired into the pipeline yet, with the phase that introduces them. */
 const PENDING_STAGES: ReadonlyArray<readonly [ScanStage, string]> = [
-  ['SOURCE_USAGE', 'Phase 4'],
   ['SPRING_ENDPOINT', 'Phase 5'],
   ['REACHABILITY', 'Phase 6'],
   ['RISK', 'Phase 7'],
@@ -97,6 +110,7 @@ export class ScanOrchestrator {
     let sbom: CycloneDxBom | undefined;
     let findings: VulnerabilityFinding[] = [];
     const vulnerabilityCoverage: VulnerabilityCoverage = { checked: 0, notChecked: 0, failed: 0 };
+    let sourceAnalysis: SourceAnalysisSummary | undefined;
 
     logger.info('SCAN', `scan started: ${projectPath}`);
 
@@ -216,6 +230,18 @@ export class ScanOrchestrator {
       }
     }
 
+    if (!project) {
+      stages.push({ stage: 'SOURCE_USAGE', status: 'SKIPPED', reason: 'no dependency analysis result' });
+    } else {
+      const sourceUsage = await this.analyzeSourceUsage(projectPath, dependencies, findings);
+      stages.push(sourceUsage.stage);
+      if (sourceUsage.stage.status === 'SUCCEEDED') {
+        findings = sourceUsage.findings;
+        sourceAnalysis = sourceUsage.summary;
+        warnings.push(...sourceUsage.warnings);
+      }
+    }
+
     for (const [stage, phase] of PENDING_STAGES) {
       stages.push({ stage, status: 'SKIPPED', reason: `not implemented (${phase})` });
     }
@@ -235,7 +261,80 @@ export class ScanOrchestrator {
       sbom,
       findings,
       vulnerabilityCoverage,
+      sourceAnalysis,
       warnings,
     };
+  }
+
+  /**
+   * SOURCE_USAGE (Phase 4): parse Java sources, match them against every resolved dependency,
+   * and attach a usage conclusion + evidence to each finding. A failure here keeps all earlier
+   * results; findings are then returned without `usage` (CLAUDE.md §19).
+   */
+  private async analyzeSourceUsage(
+    projectPath: string,
+    dependencies: readonly ProjectDependency[],
+    findings: readonly VulnerabilityFinding[],
+  ): Promise<{
+    stage: ScanStageResult;
+    findings: VulnerabilityFinding[];
+    summary?: SourceAnalysisSummary;
+    warnings: string[];
+  }> {
+    const { logger } = this.deps;
+    const failed = (reason: string) => {
+      logger.error('SOURCE', reason);
+      return {
+        stage: { stage: 'SOURCE_USAGE', status: 'FAILED', reason } satisfies ScanStageResult,
+        findings: [...findings],
+        warnings: [],
+      };
+    };
+
+    let analysis: Awaited<ReturnType<JavaSourceAnalyzer['analyzeProject']>>;
+    try {
+      analysis = await this.deps.sourceAnalyzer.analyzeProject(projectPath);
+    } catch (cause) {
+      return failed(`source analysis threw: ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+    if (!analysis.ok) return failed(`${analysis.error.code}: ${analysis.error.message}`);
+
+    const { files, skippedFiles, warnings } = analysis.value;
+    const dependencyUsages = matchDependencyUsages(
+      analysis.value,
+      dependencies.map(({ coordinate }) => ({
+        groupId: coordinate.groupId,
+        artifactId: coordinate.artifactId,
+        purl: coordinate.purl,
+      })),
+    );
+    const usageByPurl = new Map(dependencyUsages.map((u) => [u.purl, u]));
+
+    const assessed = findings.map((finding): VulnerabilityFinding => {
+      const dependencyUsage = usageByPurl.get(finding.package.purl);
+      return dependencyUsage ? { ...finding, usage: assessFindingUsage(finding, dependencyUsage) } : finding;
+    });
+
+    const summary: SourceAnalysisSummary = {
+      mainFiles: files.filter((f) => f.sourceSet === 'MAIN').length,
+      testFiles: files.filter((f) => f.sourceSet === 'TEST').length,
+      skippedFiles,
+      usedDependencies: dependencyUsages.filter((d) => d.usages.some((u) => u.sourceSet === 'MAIN'))
+        .length,
+    };
+    const usedFindings = assessed.filter((f) => f.usage?.used).length;
+    const vulnerableApiFindings = assessed.filter((f) => f.usage?.vulnerableApi === 'USED').length;
+
+    logger.info(
+      'SOURCE',
+      `${files.length} Java files analyzed (${summary.mainFiles} main, ${summary.testFiles} test, ${skippedFiles.length} skipped)`,
+    );
+    logger.info('SOURCE', `${summary.usedDependencies} dependencies used by source`);
+    logger.info(
+      'SOURCE',
+      `${usedFindings} of ${assessed.length} findings used, ${vulnerableApiFindings} with vulnerable API usage`,
+    );
+
+    return { stage: { stage: 'SOURCE_USAGE', status: 'SUCCEEDED' }, findings: assessed, summary, warnings };
   }
 }

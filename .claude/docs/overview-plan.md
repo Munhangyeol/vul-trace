@@ -24,12 +24,13 @@ vulnerable API reachable→ 엔드포인트 → ... → 호출 위치 콜 경로
 
 ---
 
-## 2. 현재 상태 (2026-09-26 기준)
+## 2. 현재 상태 (2026-10-17 기준)
 
 **Phase 0 (스캐폴딩) 완료** — 커밋 `1470308 feat: scaffold TypeScript monorepo for VulnTrace MVP`
 **Phase 1 (Maven 의존성 분석) 완료** — 커밋 `3cce848 feat: implement Phase 1 Maven dependency analysis`
 **Phase 2 (SBOM + OSV 취약점 매칭) 완료** — 커밋 `5bc7f58 feat: implement Phase 2 SBOM + OSV vulnerability matching`
-**Phase 3 (CLI 리포트 + React 대시보드, DB 연동) 완료** — 상세 계획 `phase-3-dashboard-cli.md`
+**Phase 3 (CLI 리포트 + React 대시보드, DB 연동) 완료** — 커밋 `7a11c4d feat: implement Phase 3 CLI report + React dashboard (DB-backed)`, 상세 계획 `phase-3-dashboard-cli.md` (2026-10-04 실제 DB + 브라우저 end-to-end 확인)
+**Phase 4 (Java 소스 사용 분석) 완료 — MVP 1 달성** — 상세 계획 `phase-4-source-usage.md` (2026-10-17 픽스처 3종 CLI 확인 + 실제 DB + 브라우저 end-to-end 확인)
 
 | 영역 | 상태 |
 |---|---|
@@ -38,18 +39,17 @@ vulnerable API reachable→ 엔드포인트 → ... → 호출 위치 콜 경로
 | `packages/dependency-analyzer` | pom.xml 파싱(속성 치환/dependencyManagement), `mvn dependency:tree` 실행/파싱, 병합 — 구현 완료 |
 | `packages/sbom` | `CycloneDxBuilder` — CycloneDX 1.5 SBOM 생성 구현 완료 |
 | `packages/vulnerability` | `OsvVulnerabilityProvider` — OSV querybatch/vulns 조회, CVSS v3 계산, 심각도 매핑, fixed version 추출 구현 완료 |
-| `packages/source-analyzer`/`spring-analyzer`/`reachability`/`risk` | 인터페이스 + `NotImplementedError` 스텁 (Phase 4~7 예정) |
-| `packages/core` | `ScanOrchestrator`가 PROJECT_DETECTION → DEPENDENCY → DEPENDENCY_TREE → SBOM → VULNERABILITY까지 연결. `summarizeScan`/`compareFindings`/`pickDisplayId`를 CLI·API 공용 집계·정렬 로직으로 추가 |
-| `apps/cli` | `scan`(요약+취약점 표)/`report`(요약+의존성+취약점+미확정, `--json` 지원)/`dependencies`/`vulnerabilities` 구현 완료 (`--allow-maven`, `--skip-vulnerabilities`, `--sbom`) |
-| `apps/api` | 프로젝트/스캔/의존성/취약점/finding 라우트 + `GET /projects`(목록에 `latestScan` 집계 포함)/`GET /projects/:id/summary`(대시보드 집계) 구현 완료 (Prisma 저장). DTO 타입은 `packages/shared/src/api/*`로 이동 |
-| `apps/web` | Vite + Router + TanStack Query. 프로젝트 등록/목록, 대시보드(집계+스캔 실행+단계별 상태), 취약점 목록, 상세 화면까지 실데이터 연동 완료. Used/Reachable/Risk Score는 Phase 4/6/7 전까지 `—` |
-| `prisma/` | 마이그레이션 2개 적용 (`init`, `phase2_vulnerability_evidence`) |
+| `packages/source-analyzer` | 토크나이저 기반 경량 Java 파서(`JavaTokenizer`/`LightweightJavaParser`), `JavaFileScanner`(main/test 구분, 심볼릭 링크·숨김 폴더 제외, 파일 수·크기 상한), 패키지 매핑표(`artifactPackages`)와 groupId 추정, 취약 API 목록(`vulnerableApis`), `UsageMatcher`, `assessFindingUsage` 구현 완료 |
+| `packages/spring-analyzer`/`reachability`/`risk` | 인터페이스 + `NotImplementedError` 스텁 (Phase 5~7 예정) |
+| `packages/core` | `ScanOrchestrator`가 PROJECT_DETECTION → DEPENDENCY → DEPENDENCY_TREE → SBOM → VULNERABILITY → SOURCE_USAGE까지 연결 (`[SOURCE]` 로그, 실패 시 PARTIAL). `summarizeScan`(`usedVulnerabilities` 포함)/`compareFindings`/`pickDisplayId`를 CLI·API 공용 집계·정렬 로직으로 추가 |
+| `apps/cli` | `scan`(요약+취약점 표)/`report`(요약+의존성+취약점+미확정, `--json` 지원, 소스 사용 증거 섹션)/`dependencies`/`vulnerabilities` 구현 완료. 취약점 표에 `Used`/`Vuln API` 열 (`--allow-maven`, `--skip-vulnerabilities`, `--sbom`) |
+| `apps/api` | 프로젝트/스캔/의존성/취약점/finding 라우트 + `GET /projects`(목록에 `latestScan` 집계 포함)/`GET /projects/:id/summary`(대시보드 집계, `usedVulnerabilities`), `GET /findings/:id/usages`(사용 증거) 구현 완료 (Prisma 저장). DTO 타입은 `packages/shared/src/api/*`로 이동 |
+| `apps/web` | Vite + Router + TanStack Query. 프로젝트 등록/목록, 대시보드(집계+스캔 실행+단계별 상태), 취약점 목록, 상세 화면까지 실데이터 연동 완료. 목록 `Used` 열, 상세 `Usage evidence` 섹션, 대시보드 `Used Vulnerabilities` 표시. Reachable/Risk Score는 Phase 6/7 전까지 `—` |
+| `prisma/` | 마이그레이션 3개 적용 (`init`, `phase2_vulnerability_evidence`, `phase4_source_usage`) |
 | `fixtures/` | Spring 픽스처 4종 (`commons-text:1.9`, CVE-2022-42889 기준). `spring-vulnerable-used`에 pom 파싱 경로 검증용 `guava`/`jackson-databind`/`commons-io` 추가 |
 | 품질 도구 | ESLint, Prettier, Vitest, husky + commitlint |
 
-**다음 작업: Phase 4 — Java 소스 사용 분석** (착수 전 "artifact → Java 패키지 매핑 방식"과 "취약 API 정보 출처" 결정 필요, §7 참고)
-
-**MVP 1 이후: GitHub 저장소 입력** — 현재는 API 서버 기준 로컬 경로만 입력 가능. 최종적으로 GitHub 저장소의 소스 코드를 분석해야 하므로 MVP 1 완료 후 입력 단계를 확장한다 (§4 "GitHub Repository Input" 참고)
+**다음 작업: GitHub 저장소 입력 (MVP 1 이후)** — 현재는 API 서버 기준 로컬 경로만 입력 가능. 최종적으로 GitHub 저장소의 소스 코드를 분석해야 하므로 입력 단계를 확장한다 (§4 "GitHub Repository Input" 참고). 그다음 Phase 5 — Spring 엔드포인트 분석
 
 ---
 
@@ -60,8 +60,8 @@ Phase 0  스캐폴딩                          ✅ 완료
 Phase 1  Maven 의존성 분석                  ✅ 완료
 Phase 2  SBOM + OSV 취약점 매칭             ✅ 완료
 Phase 3  CLI 리포트 + React 대시보드 (DB 연동) ✅ 완료
-Phase 4  Java 소스 사용 분석                ◀ 다음, 여기까지 MVP 1 (§23)
-(MVP 1 이후) GitHub 저장소 입력             — 로컬 경로 외에 GitHub URL로 스캔
+Phase 4  Java 소스 사용 분석                ✅ 완료, 여기까지 MVP 1 (§23)
+(MVP 1 이후) GitHub 저장소 입력             ◀ 다음 — 로컬 경로 외에 GitHub URL로 스캔
 Phase 5  Spring 엔드포인트 분석
 Phase 6  도달성(Reachability) 분석
 Phase 7  위험도 우선순위화
@@ -289,7 +289,7 @@ spring-vulnerable-reachable → reachable=true
 | M1 의존성 인벤토리 | 1 | CLI로 직접/전이 의존성 + purl 출력 |
 | M2 취약점 탐지 | 2 | CLI로 CVE 목록 + fixed version 출력 |
 | M3 대시보드 | 3 | 웹에서 프로젝트/취약점 조회 |
-| **MVP 1** | 1~4 | §23 Definition of Done 전체 충족 (소스 사용 증거 포함) |
+| **MVP 1** | 1~4 | ✅ §23 Definition of Done 전체 충족 (소스 사용 증거 포함) |
 | M4 GitHub 입력 | MVP 1 이후 | 공개 GitHub 저장소 URL로 스캔, commit SHA 근거 기록 |
 | M5 도달성 | 5~6 | 엔드포인트 → 취약 API 콜 경로 제시 |
 | M6 우선순위/조치 | 7~8 | 설명 가능한 점수 + 조치 안내 |
@@ -315,8 +315,8 @@ spring-vulnerable-reachable → reachable=true
 | `mvn` 실행의 신뢰 문제 (부모 POM/플러그인 다운로드·실행) | 1 | 실행 옵션 최소화, 실패 시 PARTIAL, 사용자 옵트인 플래그 검토 |
 | 부모 POM 버전 관리로 인한 pom 단독 파싱 한계 | 1 | `dependency:tree` 보완, 미확정 버전 경고 |
 | OSV 결과 변동성 | 2 | 테스트는 녹화 응답 사용, 픽스처 기대값 한정 |
-| artifact → Java 패키지 매핑 방법 | 4 | 초기 매핑 테이블, 이후 JAR 인덱싱 검토 |
-| 취약 API(함수 단위) 정보 출처 | 4, 6 | OSV `affected[].ecosystem_specific` 등 실제 필드 확인 후 결정, 없으면 수동 큐레이션 |
+| artifact → Java 패키지 매핑 방법 | 4 | 결정(phase-4 D2): 수동 매핑표 + groupId 추정, 근거(`basis`) 표시. JAR 인덱싱은 이후 검토 |
+| 취약 API(함수 단위) 정보 출처 | 4, 6 | 결정(phase-4 D3): OSV 응답에 Maven용 함수 단위 필드 없음 확인 → 수동 목록(`vulnerableApis.ts`), 없으면 `NO_API_INFO` |
 | TS 기반 Java 파싱 정밀도 | 4~6 | 파서 추상화 유지, 한계 명시, 필요 시 Stage B |
 | 다형성/DI/AOP로 인한 콜 그래프 누락 | 6 | "분석 범위" 표기, false negative 가능성 문서화 |
 | 인증 요구 여부 정적 판단 | 7 | 판단 불가 시 unknown, 점수 근거에 명시 |

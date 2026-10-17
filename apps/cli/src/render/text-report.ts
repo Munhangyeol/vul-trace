@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import { compareFindings, pickDisplayId, summarizeScan } from '@vulntrace/core';
 import type { ScanReport } from '@vulntrace/core';
-import type { ScanStage } from '@vulntrace/shared';
+import type { FindingUsage, ScanStage, VulnerabilityFinding } from '@vulntrace/shared';
 
 function stageNote(report: ScanReport, stage: ScanStage): string | undefined {
   const result = report.stages.find((s) => s.stage === stage);
@@ -27,6 +27,9 @@ export function renderSummary(report: ScanReport): string {
       `${'Vulnerabilities:'.padEnd(SUMMARY_LABEL_WIDTH)}${summary.vulnerabilities}`,
       `${'Critical:'.padEnd(SUMMARY_LABEL_WIDTH)}${summary.bySeverity.CRITICAL}`,
       `${'High:'.padEnd(SUMMARY_LABEL_WIDTH)}${summary.bySeverity.HIGH}`,
+      `${'Used by source:'.padEnd(SUMMARY_LABEL_WIDTH)}${
+        summary.usedVulnerabilities ?? `unavailable (${stageNote(report, 'SOURCE_USAGE') ?? 'not analyzed'})`
+      }`,
     );
 
     const vulnerabilityNote = stageNote(report, 'VULNERABILITY');
@@ -40,26 +43,60 @@ export function renderSummary(report: ScanReport): string {
   return lines.join('\n');
 }
 
+const VULNERABLE_API_LABEL: Record<FindingUsage['vulnerableApi'], string> = {
+  USED: 'used',
+  NOT_DETECTED: 'not detected',
+  NO_API_INFO: 'no info',
+};
+
+function usedLabel(finding: VulnerabilityFinding): string {
+  if (!finding.usage) return '-';
+  return finding.usage.used ? 'yes' : 'no';
+}
+
+function vulnerableApiLabel(finding: VulnerabilityFinding): string {
+  return finding.usage ? VULNERABLE_API_LABEL[finding.usage.vulnerableApi] : '-';
+}
+
+const TABLE_HEADER = ['ID', 'Severity', 'CVSS', 'Dependency', 'Used', 'Vuln API', 'Fixed'] as const;
+const COLUMN_GAP = '  ';
+
+/** Pads every column but the last to its widest cell so long values never shift later columns. */
+function renderColumns(rows: readonly (readonly string[])[]): string[] {
+  const widths = rows[0]?.map((_, i) => Math.max(...rows.map((r) => r[i]?.length ?? 0))) ?? [];
+  return rows.map((r) =>
+    r.map((cell, i) => (i === r.length - 1 ? cell : cell.padEnd(widths[i] ?? 0))).join(COLUMN_GAP),
+  );
+}
+
 /** Just the sorted vulnerability table — no coverage note, no unresolved-dependency detail. */
 export function renderVulnerabilityTable(report: ScanReport): string {
   if (report.findings.length === 0) return '';
 
-  const lines = ['ID               Severity  CVSS  Dependency                                Fixed'];
-  for (const finding of [...report.findings].sort(compareFindings)) {
-    const displayId = pickDisplayId(finding.vulnerability);
+  const findings = [...report.findings].sort(compareFindings);
+  const rows = findings.map((finding) => {
     const cvss =
       finding.vulnerability.cvssScore !== undefined ? finding.vulnerability.cvssScore.toFixed(1) : '-';
-    const dependency = `${finding.package.name}@${finding.package.version}`;
-    const fixed = finding.fixedVersions.length > 0 ? finding.fixedVersions.join(', ') : 'no fix';
-    lines.push(
-      [displayId.padEnd(16), finding.vulnerability.severity.padEnd(9), cvss.padEnd(5), dependency.padEnd(40), fixed].join(
-        ' ',
-      ),
-    );
-    if (finding.vulnerability.id !== displayId) {
+    return [
+      pickDisplayId(finding.vulnerability),
+      finding.vulnerability.severity,
+      cvss,
+      `${finding.package.name}@${finding.package.version}`,
+      usedLabel(finding),
+      vulnerableApiLabel(finding),
+      finding.fixedVersions.length > 0 ? finding.fixedVersions.join(', ') : 'no fix',
+    ];
+  });
+
+  const [header = '', ...body] = renderColumns([TABLE_HEADER, ...rows]);
+  const lines = [header];
+  body.forEach((line, i) => {
+    lines.push(line);
+    const finding = findings[i];
+    if (finding && finding.vulnerability.id !== rows[i]?.[0]) {
       lines.push(`  (${finding.vulnerability.id})`);
     }
-  }
+  });
   return lines.join('\n');
 }
 
@@ -128,6 +165,41 @@ export function renderVulnerabilities(report: ScanReport): string {
         ].join('   '),
       ),
     );
+  }
+
+  return lines.join('\n');
+}
+
+/** Phase 4 evidence: for every finding, where the application source uses the dependency. */
+export function renderSourceUsage(report: ScanReport): string {
+  const note = stageNote(report, 'SOURCE_USAGE');
+  if (note || !report.sourceAnalysis) return `Source usage: unavailable (${note ?? 'not analyzed'})`;
+
+  const { mainFiles, testFiles, skippedFiles } = report.sourceAnalysis;
+  const skippedNote = skippedFiles.length > 0 ? `, ${skippedFiles.length} skipped` : '';
+  const lines = [`Source usage: ${mainFiles + testFiles} Java files analyzed (${mainFiles} main, ${testFiles} test${skippedNote})`];
+
+  for (const finding of [...report.findings].sort(compareFindings)) {
+    const usage = finding.usage;
+    if (!usage) continue;
+    const verdict = usage.used ? 'used' : 'not used';
+    lines.push(
+      '',
+      `${pickDisplayId(finding.vulnerability)}  ${finding.package.name}@${finding.package.version}  ${verdict}, vulnerable API ${VULNERABLE_API_LABEL[usage.vulnerableApi]}`,
+      `  packages: ${usage.packageMapping.packages.join(', ')} (${usage.packageMapping.basis === 'CURATED' ? 'curated mapping' : 'assumed from groupId'})`,
+    );
+    if (usage.vulnerableApis.length > 0) {
+      const apis = usage.vulnerableApis.map((api) => (api.method ? `${api.type}#${api.method}` : api.type));
+      lines.push(`  vulnerable APIs checked: ${apis.join(', ')}`);
+    }
+    const usageRows = usage.usages.map((u) => {
+      const { filePath, line } = u.evidence.location;
+      const markers = [u.sourceSet === 'TEST' ? '[test]' : '', u.vulnerableApi ? '[vulnerable API]' : '']
+        .filter((m) => m !== '')
+        .join(' ');
+      return [`${filePath}:${line}`, u.kind, `${u.symbol}${markers ? `  ${markers}` : ''}`];
+    });
+    lines.push(...renderColumns(usageRows).map((l) => `  ${l}`));
   }
 
   return lines.join('\n');

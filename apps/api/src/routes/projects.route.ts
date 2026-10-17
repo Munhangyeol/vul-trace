@@ -132,6 +132,7 @@ export function createProjectRoutes(container: Container): FastifyPluginAsync {
                 vulnerabilities: loaded.summary.vulnerabilities,
                 findings: loaded.summary.findings,
                 bySeverity: loaded.summary.bySeverity,
+                usedVulnerabilities: loaded.summary.usedVulnerabilities,
                 coverage: loaded.summary.coverage,
                 unresolvedDependencies: loaded.scan.unresolvedDependencies,
               }

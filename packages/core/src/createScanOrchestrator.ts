@@ -1,5 +1,6 @@
 import { MavenDependencyAnalyzer } from '@vulntrace/dependency-analyzer';
 import { CycloneDxBuilder } from '@vulntrace/sbom';
+import { LightweightJavaSourceAnalyzer } from '@vulntrace/source-analyzer';
 import { OsvVulnerabilityProvider } from '@vulntrace/vulnerability';
 import type { ScanLogger } from './logging/ScanLogger.js';
 import { ScanOrchestrator } from './ScanOrchestrator.js';
@@ -10,6 +11,7 @@ export function createScanOrchestrator(options: { logger: ScanLogger }): ScanOrc
     dependencyAnalyzer: new MavenDependencyAnalyzer(),
     sbomBuilder: new CycloneDxBuilder(),
     vulnerabilityProvider: new OsvVulnerabilityProvider(),
+    sourceAnalyzer: new LightweightJavaSourceAnalyzer(),
     logger: options.logger,
   });
 }

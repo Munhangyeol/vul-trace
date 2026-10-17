@@ -21,6 +21,11 @@ export interface ScanSummary {
   /** Count of finding rows (one dependency can have several vulnerabilities). */
   findings: number;
   vulnerableDependencies: number;
+  /**
+   * Distinct vulnerabilities with at least one finding whose dependency is used by MAIN sources.
+   * `null` when source usage was not analyzed for some finding — unknown, not zero.
+   */
+  usedVulnerabilities: number | null;
   bySeverity: Record<Severity, number>;
   coverage: VulnerabilityCoverage;
 }
@@ -47,12 +52,18 @@ export function summarizeScan(input: ScanSummaryInput): ScanSummary {
 
   const vulnerableDependencies = new Set(input.findings.map((f) => f.package.purl)).size;
 
+  const usageAnalyzed = input.findings.every((f) => f.usage !== undefined);
+  const usedVulnerabilities = usageAnalyzed
+    ? new Set(input.findings.filter((f) => f.usage?.used).map((f) => f.vulnerability.id)).size
+    : null;
+
   return {
     dependencies: input.dependencies.length,
     unresolved: input.unresolvedDependencies.length,
     vulnerabilities: uniqueVulnerabilities.size,
     findings: input.findings.length,
     vulnerableDependencies,
+    usedVulnerabilities,
     bySeverity,
     coverage: input.vulnerabilityCoverage,
   };

@@ -57,6 +57,7 @@ describe('summarizeScan', () => {
       vulnerabilities: 0,
       findings: 0,
       vulnerableDependencies: 0,
+      usedVulnerabilities: 0,
       bySeverity: { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, UNKNOWN: 0 },
       coverage: { checked: 1, notChecked: 1, failed: 0 },
     });
@@ -90,5 +91,34 @@ describe('summarizeScan', () => {
     expect(summary.vulnerableDependencies).toBe(2);
     expect(summary.vulnerabilities).toBe(2);
     expect(summary.bySeverity).toEqual({ CRITICAL: 1, HIGH: 1, MEDIUM: 0, LOW: 0, UNKNOWN: 0 });
+  });
+
+  it('reports usedVulnerabilities as null when source usage was not analyzed', () => {
+    const summary = summarizeScan({
+      dependencies: [],
+      unresolvedDependencies: [],
+      findings: [finding()],
+      vulnerabilityCoverage: { checked: 1, notChecked: 0, failed: 0 },
+    });
+    expect(summary.usedVulnerabilities).toBeNull();
+  });
+
+  it('counts distinct vulnerabilities whose dependency is used by source', () => {
+    const usage = (used: boolean): NonNullable<VulnerabilityFinding['usage']> => ({
+      used,
+      vulnerableApi: 'NO_API_INFO',
+      packageMapping: { packages: ['x'], basis: 'GROUP_ID' },
+      vulnerableApis: [],
+      usages: [],
+    });
+    const used = { ...finding(), usage: usage(true) };
+    const unused = { ...finding({ id: 'CVE-2021-1', aliases: [] }, 'pkg:maven/b/b@1'), usage: usage(false) };
+    const summary = summarizeScan({
+      dependencies: [],
+      unresolvedDependencies: [],
+      findings: [used, used, unused],
+      vulnerabilityCoverage: { checked: 2, notChecked: 0, failed: 0 },
+    });
+    expect(summary.usedVulnerabilities).toBe(1);
   });
 });

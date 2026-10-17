@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  FindingUsagesDto,
   ProjectDto,
   ProjectListItemDto,
   ProjectSummaryDto,
@@ -14,6 +15,7 @@ export const queryKeys = {
   projectSummary: (projectId: string) => ['projects', projectId, 'summary'] as const,
   vulnerabilities: (projectId: string) => ['projects', projectId, 'vulnerabilities'] as const,
   finding: (findingId: string) => ['findings', findingId] as const,
+  findingUsages: (findingId: string) => ['findings', findingId, 'usages'] as const,
 };
 
 export function useProjects() {
@@ -43,6 +45,14 @@ export function useFinding(findingId: string) {
   return useQuery({
     queryKey: queryKeys.finding(findingId),
     queryFn: () => apiGet<VulnerabilityFindingDto>(`/findings/${findingId}`),
+    enabled: findingId.length > 0,
+  });
+}
+
+export function useFindingUsages(findingId: string) {
+  return useQuery({
+    queryKey: queryKeys.findingUsages(findingId),
+    queryFn: () => apiGet<FindingUsagesDto>(`/findings/${findingId}/usages`),
     enabled: findingId.length > 0,
   });
 }

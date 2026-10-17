@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { formatDate } from './date';
 import { formatFixedVersions } from './fixedVersions';
+import type { FindingUsageSummaryDto } from '@vulntrace/shared';
 import { formatSeverity } from './severity';
+import { formatPackageMappingBasis, formatUsed, formatVulnerableApi } from './usage';
 
 describe('formatSeverity', () => {
   it('title-cases a severity value', () => {
@@ -32,5 +34,33 @@ describe('formatFixedVersions', () => {
 
   it('says "no fix" when OSV reports none, instead of a blank value', () => {
     expect(formatFixedVersions([])).toBe('no fix');
+  });
+});
+
+describe('usage formatting', () => {
+  const usage: FindingUsageSummaryDto = {
+    used: true,
+    vulnerableApi: 'USED',
+    packageMapping: { packages: ['org.apache.commons.text'], basis: 'CURATED' },
+    vulnerableApis: [],
+    mainUsageCount: 3,
+    testUsageCount: 0,
+  };
+
+  it('distinguishes not analyzed (null) from not used (false)', () => {
+    expect(formatUsed(null)).toBe('—');
+    expect(formatUsed(usage)).toBe('Yes');
+    expect(formatUsed({ ...usage, used: false })).toBe('No');
+  });
+
+  it('never presents NOT_DETECTED as proof the vulnerable API is unused', () => {
+    expect(formatVulnerableApi('USED')).toBe('vulnerable API used');
+    expect(formatVulnerableApi('NOT_DETECTED')).toBe('vulnerable API not detected');
+    expect(formatVulnerableApi('NO_API_INFO')).toBe('no vulnerable API info');
+  });
+
+  it('labels the package mapping basis', () => {
+    expect(formatPackageMappingBasis('CURATED')).toBe('curated mapping');
+    expect(formatPackageMappingBasis('GROUP_ID')).toBe('assumed from groupId');
   });
 });

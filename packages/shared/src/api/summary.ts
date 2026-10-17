@@ -14,6 +14,8 @@ export interface ProjectScanSummaryDto {
   vulnerabilities: number;
   findings: number;
   bySeverity: Record<Severity, number>;
+  /** Distinct vulnerabilities used by MAIN sources; null when source usage was not analyzed. */
+  usedVulnerabilities: number | null;
   coverage: VulnerabilityCoverage;
   unresolvedDependencies: UnresolvedDependency[];
 }

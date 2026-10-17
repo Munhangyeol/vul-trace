@@ -4,3 +4,4 @@ export type { ScanJobDto } from './scan.js';
 export type { ProjectDependencyDto } from './dependency.js';
 export type { ProjectVulnerabilitiesDto, VulnerabilityFindingDto } from './vulnerability.js';
 export type { ProjectScanSummaryDto, ProjectSummaryDto } from './summary.js';
+export type { FindingUsageSummaryDto, FindingUsagesDto, SourceUsageDto } from './usage.js';

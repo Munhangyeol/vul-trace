@@ -444,6 +444,115 @@ describe('api server', () => {
     expect(body.findings.map((f) => f.displayId)).toEqual(['CVE-2020-2', 'CVE-2020-1']);
   });
 
+  it('exposes source usage evidence through the finding DTO, GET /findings/:id/usages and the summary', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      payload: { name: 'usage-demo', path: fixturePath('spring-vulnerable-used') },
+    });
+    const project = createRes.json() as { id: string };
+
+    const scan: ScanJob = {
+      id: randomUUID(),
+      projectId: project.id,
+      state: 'COMPLETED',
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      stages: [{ stage: 'SOURCE_USAGE', status: 'SUCCEEDED' }],
+      unresolvedDependencies: [],
+      vulnerabilityCoverage: { checked: 1, notChecked: 0, failed: 0 },
+    };
+    await container.scanRepository.save(scan);
+
+    const purl = 'pkg:maven/org.apache.commons/commons-text@1.9';
+    const location = { filePath: 'src/main/java/com/example/demo/TemplateService.java', line: 14, column: 60 };
+    const finding: VulnerabilityFinding = {
+      vulnerability: {
+        id: 'GHSA-599f-7c49-w659',
+        aliases: ['CVE-2022-42889'],
+        summary: 'Arbitrary code execution in Apache Commons Text',
+        severity: 'CRITICAL',
+        severitySource: 'CVSS_V3',
+        modified: '2024-02-16T08:09:06.872Z',
+        references: [],
+      },
+      package: { ecosystem: 'Maven', name: 'org.apache.commons:commons-text', version: '1.9', purl },
+      fixedVersions: ['1.10.0'],
+      evidence: { provider: 'OSV', queriedAt: '2026-10-04T00:00:00.000Z', affectedRanges: [], affectedVersions: [] },
+      usage: {
+        used: true,
+        vulnerableApi: 'USED',
+        packageMapping: { packages: ['org.apache.commons.text'], basis: 'CURATED' },
+        vulnerableApis: [{ type: 'org.apache.commons.text.StringSubstitutor', method: 'createInterpolator' }],
+        usages: [
+          {
+            kind: 'METHOD_CALL',
+            symbol: 'org.apache.commons.text.StringSubstitutor#createInterpolator',
+            dependencyPurl: purl,
+            sourceSet: 'MAIN',
+            vulnerableApi: true,
+            evidence: { location, snippet: 'StringSubstitutor.createInterpolator();' },
+          },
+        ],
+      },
+    };
+    await container.findingRepository.saveFindings(scan.id, [finding]);
+
+    const listRes = await app.inject({ method: 'GET', url: `/api/projects/${project.id}/vulnerabilities` });
+    const body = listRes.json() as { findings: Array<{ findingId: string; usage: unknown }> };
+    expect(body.findings[0]?.usage).toEqual({
+      used: true,
+      vulnerableApi: 'USED',
+      packageMapping: { packages: ['org.apache.commons.text'], basis: 'CURATED' },
+      vulnerableApis: [{ type: 'org.apache.commons.text.StringSubstitutor', method: 'createInterpolator' }],
+      mainUsageCount: 1,
+      testUsageCount: 0,
+    });
+
+    const findingId = body.findings[0]!.findingId;
+    const usagesRes = await app.inject({ method: 'GET', url: `/api/findings/${findingId}/usages` });
+    expect(usagesRes.statusCode).toBe(200);
+    expect(usagesRes.json()).toMatchObject({
+      findingId,
+      analyzed: true,
+      usages: [
+        {
+          kind: 'METHOD_CALL',
+          symbol: 'org.apache.commons.text.StringSubstitutor#createInterpolator',
+          sourceSet: 'MAIN',
+          vulnerableApi: true,
+          filePath: location.filePath,
+          line: 14,
+          column: 60,
+        },
+      ],
+    });
+
+    const summaryRes = await app.inject({ method: 'GET', url: `/api/projects/${project.id}/summary` });
+    expect(summaryRes.json()).toMatchObject({ latestScan: { usedVulnerabilities: 1 } });
+  });
+
+  it('GET /api/findings/:findingId/usages returns 404 for an unknown finding', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/findings/does-not-exist/usages' });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('a real scan runs the SOURCE_USAGE stage', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      payload: { name: 'source-stage', path: fixturePath('spring-vulnerable-used') },
+    });
+    const project = createRes.json() as { id: string };
+    const scanRes = await app.inject({
+      method: 'POST',
+      url: `/api/projects/${project.id}/scans`,
+      payload: { checkVulnerabilities: false },
+    });
+    const scan = scanRes.json() as { stages: Array<{ stage: string; status: string }> };
+    expect(scan.stages).toContainEqual({ stage: 'SOURCE_USAGE', status: 'SUCCEEDED' });
+  });
+
   it('POST /api/projects/:projectId/scans returns 404 for an unknown project', async () => {
     const res = await app.inject({
       method: 'POST',
