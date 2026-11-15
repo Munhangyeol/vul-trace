@@ -9,6 +9,8 @@ export interface ProjectScanSummaryDto {
   state: ScanState;
   startedAt: string;
   finishedAt?: string;
+  /** GIT projects: the analyzed commit. */
+  commitSha?: string;
   stages: ScanStageResult[];
   dependencies: number;
   vulnerabilities: number;

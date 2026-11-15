@@ -23,6 +23,7 @@ function toScanJob(row: ScanJobRow): ScanJob {
       ...EMPTY_COVERAGE,
       ...(row.vulnerabilityCoverage as unknown as Partial<VulnerabilityCoverage> | null),
     },
+    ...(row.commitSha ? { commitSha: row.commitSha } : {}),
   };
 }
 
@@ -39,6 +40,7 @@ export class PrismaScanRepository implements ScanRepository {
       stageResults: scan.stages as unknown as Prisma.InputJsonValue,
       unresolvedDependencies: scan.unresolvedDependencies as unknown as Prisma.InputJsonValue,
       vulnerabilityCoverage: scan.vulnerabilityCoverage as unknown as Prisma.InputJsonValue,
+      commitSha: scan.commitSha ?? null,
     };
 
     await this.prisma.scanJob.upsert({

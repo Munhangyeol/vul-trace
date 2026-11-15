@@ -1,10 +1,16 @@
-import type { ScanState } from '../types/project.js';
+import type { ProjectSourceType, ScanState } from '../types/project.js';
 import type { Severity } from '../types/vulnerability.js';
 
 export interface ProjectDto {
   id: string;
   name: string;
-  path: string;
+  sourceType: ProjectSourceType;
+  /** LOCAL projects only. */
+  path?: string;
+  /** GIT projects only: normalized https://github.com/<owner>/<repo>. */
+  repoUrl?: string;
+  /** GIT projects only: branch or tag; absent means the default branch. */
+  ref?: string;
   createdAt: string;
 }
 
@@ -13,6 +19,7 @@ export interface ProjectLatestScanDto {
   id: string;
   state: ScanState;
   finishedAt?: string;
+  commitSha?: string;
   dependencyCount: number;
   vulnerabilityCount: number;
   bySeverity: Record<Severity, number>;

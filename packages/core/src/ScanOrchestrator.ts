@@ -33,8 +33,18 @@ export interface SourceAnalysisSummary {
   usedDependencies: number;
 }
 
+/**
+ * Which code the report describes. Set by RepositoryScanRunner; `commitSha` is present for a
+ * GIT scan once the clone succeeded.
+ */
+export type ScanReportSource =
+  | { type: 'LOCAL'; path: string }
+  | { type: 'GIT'; repoUrl: string; ref?: string; commitSha?: string };
+
 export interface ScanReport {
+  /** Analyzed folder for LOCAL scans; the repository URL for GIT scans. */
   projectPath: string;
+  source?: ScanReportSource;
   state: ScanState;
   startedAt: string;
   finishedAt: string;

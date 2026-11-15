@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import type { ScanOrchestrator } from '@vulntrace/core';
+import type { RepositoryScanRunner } from '@vulntrace/core';
 import {
   renderDependencies,
   renderSourceUsage,
@@ -11,25 +11,28 @@ import type { MavenCliOptions } from './mavenOptions.js';
 import { addVulnerabilityOptions, parseVulnerabilityOptions } from './vulnerabilityOptions.js';
 import type { VulnerabilityCliOptions } from './vulnerabilityOptions.js';
 import { runScan } from './runScan.js';
+import { addSourceOptions, TARGET_ARGUMENT_DESCRIPTION } from './sourceOptions.js';
+import type { SourceCliOptions } from './sourceOptions.js';
 
-interface ReportCliOptions extends MavenCliOptions, VulnerabilityCliOptions {
+interface ReportCliOptions extends SourceCliOptions, MavenCliOptions, VulnerabilityCliOptions {
   json?: boolean;
 }
 
-export function registerReportCommand(program: Command, orchestrator: ScanOrchestrator): void {
+export function registerReportCommand(program: Command, runner: RepositoryScanRunner): void {
   const command = program
     .command('report')
     .description('Print the full scan report (summary, dependencies, vulnerabilities, source usage evidence)')
-    .argument('<path>', 'path to the project root')
+    .argument('<target>', TARGET_ARGUMENT_DESCRIPTION)
     .option('--json', 'print the full ScanReport as JSON instead of text');
+  addSourceOptions(command);
   addMavenOptions(command);
   addVulnerabilityOptions(command);
 
-  command.action(async (path: string, options: ReportCliOptions) => {
-    const report = await runScan(orchestrator, path, {
+  command.action(async (target: string, options: ReportCliOptions) => {
+    const report = await runScan(runner, target, {
       ...parseMavenOptions(options),
       ...parseVulnerabilityOptions(options),
-    });
+    }, options);
 
     if (options.json) {
       console.log(JSON.stringify(report, null, 2));

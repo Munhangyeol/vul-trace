@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router';
 import { ApiError } from '../api/client';
 import { useProjectSummary, useRunScan } from '../api/queries';
 import { formatDate } from '../format/date';
+import { formatCommitSha, formatProjectSource } from '../format/source';
 
 const NOT_ANALYZED_TITLE = 'Not analyzed yet — see CLAUDE.md Phase 6 (reachable)';
 const USAGE_NOT_ANALYZED_TITLE = 'Source usage was not analyzed for this scan';
@@ -29,6 +30,15 @@ export function ProjectDashboardPage() {
           {runScan.isPending ? 'Scanning…' : 'Run scan'}
         </button>
       </div>
+      <p className="muted">
+        {formatProjectSource(summary.project)}
+        {summary.project.sourceType === 'GIT' && (
+          <>
+            {' · commit '}
+            <code title={scan?.commitSha}>{formatCommitSha(scan?.commitSha)}</code>
+          </>
+        )}
+      </p>
       {runScan.isError && (
         <p role="alert">
           {runScan.error instanceof ApiError

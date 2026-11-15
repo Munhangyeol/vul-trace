@@ -290,7 +290,8 @@ label {
   font-weight: 600;
 }
 
-input {
+input,
+select {
   font: inherit;
   color: var(--text);
   background: var(--surface);
@@ -302,6 +303,7 @@ input {
 }
 
 input:focus-visible,
+select:focus-visible,
 button:focus-visible,
 a:focus-visible {
   outline: 2px solid var(--accent);

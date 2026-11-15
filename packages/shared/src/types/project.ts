@@ -4,6 +4,7 @@ export type ScanState = 'PENDING' | 'RUNNING' | 'PARTIAL' | 'COMPLETED' | 'FAILE
 
 /** Pipeline stages in execution order (CLAUDE.md §1 Core Flow). */
 export type ScanStage =
+  | 'REPOSITORY_FETCH'
   | 'PROJECT_DETECTION'
   | 'DEPENDENCY'
   | 'DEPENDENCY_TREE'
@@ -23,10 +24,16 @@ export interface ScanStageResult {
   reason?: string;
 }
 
+/** Where a project's code comes from: a local folder, or a public GitHub repository. */
+export type ProjectSource =
+  { type: 'LOCAL'; path: string } | { type: 'GIT'; repoUrl: string; ref?: string };
+
+export type ProjectSourceType = ProjectSource['type'];
+
 export interface Project {
   id: string;
   name: string;
-  path: string;
+  source: ProjectSource;
   createdAt: string;
 }
 
@@ -50,4 +57,6 @@ export interface ScanJob {
   /** Dependencies whose version could not be resolved from pom.xml/tree — evidence, not just a count. */
   unresolvedDependencies: UnresolvedDependency[];
   vulnerabilityCoverage: VulnerabilityCoverage;
+  /** GIT projects: the exact commit that was analyzed (CLAUDE.md §6.2). */
+  commitSha?: string;
 }

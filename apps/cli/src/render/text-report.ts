@@ -14,9 +14,17 @@ const SUMMARY_LABEL_WIDTH = 19;
 /** The CLAUDE.md §7 Phase 3 summary block: Project / State / Dependencies / Vulnerabilities / Critical / High. */
 export function renderSummary(report: ScanReport): string {
   const summary = summarizeScan(report);
-  const lines = [`Project: ${basename(report.projectPath)}`, `State:   ${report.state}`, ''];
+  const lines = [`Project: ${basename(report.projectPath)}`];
+  if (report.source?.type === 'GIT') {
+    const { repoUrl, ref, commitSha } = report.source;
+    lines.push(`Source:  ${repoUrl}${ref ? ` (${ref})` : ''} @ ${commitSha ?? 'not fetched'}`);
+  }
+  lines.push(`State:   ${report.state}`, '');
 
-  const detectionNote = stageNote(report, 'PROJECT_DETECTION') ?? stageNote(report, 'DEPENDENCY');
+  const detectionNote =
+    stageNote(report, 'REPOSITORY_FETCH') ??
+    stageNote(report, 'PROJECT_DETECTION') ??
+    stageNote(report, 'DEPENDENCY');
   if (detectionNote) {
     lines.push(`Dependencies: unavailable (${detectionNote})`);
   } else {

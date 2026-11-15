@@ -24,13 +24,14 @@ vulnerable API reachable→ 엔드포인트 → ... → 호출 위치 콜 경로
 
 ---
 
-## 2. 현재 상태 (2026-10-17 기준)
+## 2. 현재 상태 (2026-11-15 기준)
 
 **Phase 0 (스캐폴딩) 완료** — 커밋 `1470308 feat: scaffold TypeScript monorepo for VulnTrace MVP`
 **Phase 1 (Maven 의존성 분석) 완료** — 커밋 `3cce848 feat: implement Phase 1 Maven dependency analysis`
 **Phase 2 (SBOM + OSV 취약점 매칭) 완료** — 커밋 `5bc7f58 feat: implement Phase 2 SBOM + OSV vulnerability matching`
 **Phase 3 (CLI 리포트 + React 대시보드, DB 연동) 완료** — 커밋 `7a11c4d feat: implement Phase 3 CLI report + React dashboard (DB-backed)`, 상세 계획 `phase-3-dashboard-cli.md` (2026-10-04 실제 DB + 브라우저 end-to-end 확인)
 **Phase 4 (Java 소스 사용 분석) 완료 — MVP 1 달성** — 상세 계획 `phase-4-source-usage.md` (2026-10-17 픽스처 3종 CLI 확인 + 실제 DB + 브라우저 end-to-end 확인)
+**GitHub 저장소 입력 완료 (MVP 1 이후)** — §4 "GitHub Repository Input" (2026-11-15 공개 저장소 3개로 CLI·API·웹 end-to-end 확인)
 
 | 영역 | 상태 |
 |---|---|
@@ -40,16 +41,17 @@ vulnerable API reachable→ 엔드포인트 → ... → 호출 위치 콜 경로
 | `packages/sbom` | `CycloneDxBuilder` — CycloneDX 1.5 SBOM 생성 구현 완료 |
 | `packages/vulnerability` | `OsvVulnerabilityProvider` — OSV querybatch/vulns 조회, CVSS v3 계산, 심각도 매핑, fixed version 추출 구현 완료 |
 | `packages/source-analyzer` | 토크나이저 기반 경량 Java 파서(`JavaTokenizer`/`LightweightJavaParser`), `JavaFileScanner`(main/test 구분, 심볼릭 링크·숨김 폴더 제외, 파일 수·크기 상한), 패키지 매핑표(`artifactPackages`)와 groupId 추정, 취약 API 목록(`vulnerableApis`), `UsageMatcher`, `assessFindingUsage` 구현 완료 |
+| `packages/repository-source` | `RepositorySource` 인터페이스, `LocalPathSource`, `GitRepositorySource`(https://github.com만 허용, 얕은 clone, 서브모듈·LFS·심볼릭 링크·hook·자격 증명 끔, 크기 상한, commit SHA 기록), URL·ref 검증 |
 | `packages/spring-analyzer`/`reachability`/`risk` | 인터페이스 + `NotImplementedError` 스텁 (Phase 5~7 예정) |
-| `packages/core` | `ScanOrchestrator`가 PROJECT_DETECTION → DEPENDENCY → DEPENDENCY_TREE → SBOM → VULNERABILITY → SOURCE_USAGE까지 연결 (`[SOURCE]` 로그, 실패 시 PARTIAL). `summarizeScan`(`usedVulnerabilities` 포함)/`compareFindings`/`pickDisplayId`를 CLI·API 공용 집계·정렬 로직으로 추가 |
-| `apps/cli` | `scan`(요약+취약점 표)/`report`(요약+의존성+취약점+미확정, `--json` 지원, 소스 사용 증거 섹션)/`dependencies`/`vulnerabilities` 구현 완료. 취약점 표에 `Used`/`Vuln API` 열 (`--allow-maven`, `--skip-vulnerabilities`, `--sbom`) |
-| `apps/api` | 프로젝트/스캔/의존성/취약점/finding 라우트 + `GET /projects`(목록에 `latestScan` 집계 포함)/`GET /projects/:id/summary`(대시보드 집계, `usedVulnerabilities`), `GET /findings/:id/usages`(사용 증거) 구현 완료 (Prisma 저장). DTO 타입은 `packages/shared/src/api/*`로 이동 |
-| `apps/web` | Vite + Router + TanStack Query. 프로젝트 등록/목록, 대시보드(집계+스캔 실행+단계별 상태), 취약점 목록, 상세 화면까지 실데이터 연동 완료. 목록 `Used` 열, 상세 `Usage evidence` 섹션, 대시보드 `Used Vulnerabilities` 표시. Reachable/Risk Score는 Phase 6/7 전까지 `—` |
-| `prisma/` | 마이그레이션 3개 적용 (`init`, `phase2_vulnerability_evidence`, `phase4_source_usage`) |
+| `packages/core` | `RepositoryScanRunner`가 저장소 가져오기(`REPOSITORY_FETCH`, GIT만) → `ScanOrchestrator` → 임시 폴더 삭제를 묶고, clone 경로를 저장소 기준 상대 경로로 바꿈. `ScanOrchestrator`가 PROJECT_DETECTION → DEPENDENCY → DEPENDENCY_TREE → SBOM → VULNERABILITY → SOURCE_USAGE까지 연결 (`[SOURCE]` 로그, 실패 시 PARTIAL). `summarizeScan`(`usedVulnerabilities` 포함)/`compareFindings`/`pickDisplayId`를 CLI·API 공용 집계·정렬 로직으로 추가 |
+| `apps/cli` | `scan`(요약+취약점 표)/`report`(요약+의존성+취약점+미확정, `--json` 지원, 소스 사용 증거 섹션)/`dependencies`/`vulnerabilities` 구현 완료. 취약점 표에 `Used`/`Vuln API` 열 (`--allow-maven`, `--skip-vulnerabilities`, `--sbom`). 모든 명령이 로컬 경로 또는 GitHub URL(`--ref`)을 받음 |
+| `apps/api` | 프로젝트/스캔/의존성/취약점/finding 라우트 + `GET /projects`(목록에 `latestScan` 집계 포함)/`GET /projects/:id/summary`(대시보드 집계, `usedVulnerabilities`), `GET /findings/:id/usages`(사용 증거) 구현 완료 (Prisma 저장). DTO 타입은 `packages/shared/src/api/*`로 이동. 프로젝트 등록이 `sourceType`(LOCAL/GIT)·`repoUrl`·`ref`를 받고, 스캔 결과에 `commitSha` 기록 |
+| `apps/web` | Vite + Router + TanStack Query. 프로젝트 등록/목록, 대시보드(집계+스캔 실행+단계별 상태), 취약점 목록, 상세 화면까지 실데이터 연동 완료. 목록 `Used` 열, 상세 `Usage evidence` 섹션, 대시보드 `Used Vulnerabilities` 표시. Reachable/Risk Score는 Phase 6/7 전까지 `—`. 등록 폼에 "Local path / GitHub URL" 선택, 목록·대시보드에 출처와 commit 표시 |
+| `prisma/` | 마이그레이션 4개 적용 (`init`, `phase2_vulnerability_evidence`, `phase4_source_usage`, `github_repository_input`) |
 | `fixtures/` | Spring 픽스처 4종 (`commons-text:1.9`, CVE-2022-42889 기준). `spring-vulnerable-used`에 pom 파싱 경로 검증용 `guava`/`jackson-databind`/`commons-io` 추가 |
 | 품질 도구 | ESLint, Prettier, Vitest, husky + commitlint |
 
-**다음 작업: GitHub 저장소 입력 (MVP 1 이후)** — 현재는 API 서버 기준 로컬 경로만 입력 가능. 최종적으로 GitHub 저장소의 소스 코드를 분석해야 하므로 입력 단계를 확장한다 (§4 "GitHub Repository Input" 참고). 그다음 Phase 5 — Spring 엔드포인트 분석
+**다음 작업: Phase 5 — Spring 엔드포인트 분석**
 
 ---
 
@@ -61,8 +63,8 @@ Phase 1  Maven 의존성 분석                  ✅ 완료
 Phase 2  SBOM + OSV 취약점 매칭             ✅ 완료
 Phase 3  CLI 리포트 + React 대시보드 (DB 연동) ✅ 완료
 Phase 4  Java 소스 사용 분석                ✅ 완료, 여기까지 MVP 1 (§23)
-(MVP 1 이후) GitHub 저장소 입력             ◀ 다음 — 로컬 경로 외에 GitHub URL로 스캔
-Phase 5  Spring 엔드포인트 분석
+(MVP 1 이후) GitHub 저장소 입력             ✅ 완료 — 로컬 경로 외에 GitHub URL로 스캔
+Phase 5  Spring 엔드포인트 분석             ◀ 다음
 Phase 6  도달성(Reachability) 분석
 Phase 7  위험도 우선순위화
 Phase 8  조치(Remediation) 안내
@@ -224,6 +226,15 @@ ScanOrchestrator.run(작업 폴더 경로)   ← 변경 없음
 - GitHub API tarball 방식은 압축 해제 라이브러리 추가와 경로 탈출 방어가 필요하므로, 얕은 clone을 우선 사용
 
 완료 기준: 공개 GitHub 저장소 URL을 등록해 스캔하면 같은 코드를 로컬 경로로 스캔한 결과와 일치하고, 결과에 commit SHA가 기록됨. 스캔 후 임시 작업 폴더가 남지 않음
+
+**구현 결과 (2026-11-15)**:
+
+- 결정: D1 `ProcessRunner`는 `dependency-analyzer`의 것을 재사용(`env` 옵션만 추가). D2 ref는 브랜치·태그만(commit SHA 지정은 이후). D3 스캔은 요청 안에서 동기 실행, clone 타임아웃 120초
+- API는 core만 의존하도록 URL·ref 검증 함수를 core에서 다시 export. 기존 `{ name, path }` 등록 요청은 그대로 LOCAL로 처리
+- `REPOSITORY_FETCH` 단계는 GIT 스캔에만 붙음. 스캔 상태는 분석 단계 기준으로 정함(clone은 됐지만 Maven 프로젝트가 아니면 FAILED). clone 실패 시 나머지 단계는 모두 SKIPPED
+- clone 폴더 기준 절대 경로(pom.xml 증거, 단계 사유, 경고, git stderr)는 저장소 기준 상대 경로나 `<workspace>`로 바꿔 저장
+- 검증: spring-petclinic(`500158f`)·java-sec-code(`4711f4e`)를 URL과 로컬 경로로 각각 스캔해 의존성·미확정 의존성·SBOM·finding 내용·소스 사용 증거가 일치함을 확인(finding 배열 순서만 OSV 병렬 조회 때문에 다름). text4shell(`288959e`)은 API+DB로 스캔해 `HelloController.java:5/20/23` 증거 확인. 없는 저장소는 자격 증명 창 없이 `CLONE_FAILED`, `file://` URL은 등록 단계에서 400
+- 한계: 크기 상한은 clone 후에 검사(받는 도중은 타임아웃만), 비공개 저장소·GitHub 외 호스트·commit SHA ref 미지원, `--allow-maven`을 GIT 소스에 켜면 경고만 남김
 
 ### Phase 5 — Spring Endpoint Analysis
 

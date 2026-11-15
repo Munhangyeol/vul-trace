@@ -12,6 +12,7 @@
     { "path": "../sbom" },
     { "path": "../vulnerability" },
     { "path": "../source-analyzer" },
+    { "path": "../repository-source" },
     { "path": "../spring-analyzer" },
     { "path": "../reachability" },
     { "path": "../risk" }

@@ -258,3 +258,45 @@ describe('renderSourceUsage', () => {
     expect(renderSourceUsage(report)).toBe('Source usage: unavailable (SKIPPED — not implemented (Phase 4))');
   });
 });
+
+describe('renderSummary for GitHub repository scans', () => {
+  it('prints the repository, ref and analyzed commit', () => {
+    const text = renderSummary({
+      ...baseReport,
+      projectPath: 'https://github.com/example/demo',
+      source: {
+        type: 'GIT',
+        repoUrl: 'https://github.com/example/demo',
+        ref: 'main',
+        commitSha: 'f'.repeat(40),
+      },
+    });
+    expect(text.split('\n').slice(0, 3)).toEqual([
+      'Project: demo',
+      `Source:  https://github.com/example/demo (main) @ ${'f'.repeat(40)}`,
+      'State:   COMPLETED',
+    ]);
+  });
+
+  it('shows the fetch failure reason instead of the skipped detection stage', () => {
+    const text = renderSummary({
+      ...baseReport,
+      projectPath: 'https://github.com/example/missing',
+      state: 'FAILED',
+      source: { type: 'GIT', repoUrl: 'https://github.com/example/missing' },
+      stages: [
+        {
+          stage: 'REPOSITORY_FETCH',
+          status: 'FAILED',
+          reason: 'CLONE_FAILED: repository not found',
+        },
+        { stage: 'PROJECT_DETECTION', status: 'SKIPPED', reason: 'repository not fetched' },
+      ],
+      dependencies: [],
+    });
+    expect(text).toContain('Source:  https://github.com/example/missing @ not fetched');
+    expect(text).toContain(
+      'Dependencies: unavailable (FAILED — CLONE_FAILED: repository not found)',
+    );
+  });
+});

@@ -13,5 +13,6 @@ export function toScanJobDto(scan: ScanJob): ScanJobDto {
     stages: scan.stages,
     unresolvedDependencies: scan.unresolvedDependencies,
     vulnerabilityCoverage: scan.vulnerabilityCoverage,
+    ...(scan.commitSha ? { commitSha: scan.commitSha } : {}),
   };
 }

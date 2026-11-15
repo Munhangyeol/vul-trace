@@ -57,10 +57,15 @@ export function useFindingUsages(findingId: string) {
   });
 }
 
+/** Mirrors POST /api/projects: a local folder, or a public GitHub repository (+ optional branch/tag). */
+export type CreateProjectInput =
+  | { name: string; sourceType: 'LOCAL'; path: string }
+  | { name: string; sourceType: 'GIT'; repoUrl: string; ref?: string };
+
 export function useCreateProject() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { name: string; path: string }) => apiPost<ProjectDto>('/projects', input),
+    mutationFn: (input: CreateProjectInput) => apiPost<ProjectDto>('/projects', input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
     },

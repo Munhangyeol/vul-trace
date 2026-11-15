@@ -6,6 +6,7 @@
     { "path": "packages/sbom" },
     { "path": "packages/vulnerability" },
     { "path": "packages/source-analyzer" },
+    { "path": "packages/repository-source" },
     { "path": "packages/spring-analyzer" },
     { "path": "packages/reachability" },
     { "path": "packages/risk" },

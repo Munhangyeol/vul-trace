@@ -18,12 +18,23 @@ enum ScanState {
   FAILED
 }
 
+enum ProjectSourceType {
+  LOCAL
+  GIT
+}
+
 model Project {
-  id        String    @id @default(uuid())
-  name      String
-  path      String
-  createdAt DateTime  @default(now()) @map("created_at")
-  scans     ScanJob[]
+  id         String            @id @default(uuid())
+  name       String
+  sourceType ProjectSourceType @default(LOCAL) @map("source_type")
+  /// LOCAL projects only.
+  path       String?
+  /// GIT projects only: normalized https://github.com/<owner>/<repo>.
+  repoUrl    String?           @map("repo_url")
+  /// GIT projects only: branch or tag; null means the default branch.
+  ref        String?
+  createdAt  DateTime          @default(now()) @map("created_at")
+  scans      ScanJob[]
 
   @@map("projects")
 }
@@ -41,6 +52,8 @@ model ScanJob {
   unresolvedDependencies Json      @default("[]") @map("unresolved_dependencies")
   /// { checked, notChecked, failed } — how many resolved dependencies were actually queried against OSV.
   vulnerabilityCoverage  Json      @default("{}") @map("vulnerability_coverage")
+  /// GIT projects: the exact commit that was analyzed (evidence, CLAUDE.md §6.2).
+  commitSha              String?   @map("commit_sha")
 
   project                Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectDependencies    ProjectDependency[]

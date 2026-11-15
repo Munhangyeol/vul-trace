@@ -24,7 +24,7 @@ React Dashboard / CLI Report
 
 전체 제품 스펙, 아키텍처 규칙, 개발 단계는 [`CLAUDE.md`](./CLAUDE.md)(또는 [`CLAUDE_KR.md`](./CLAUDE_KR.md))를, 이 리포지토리가 만들어진 스캐폴딩 계획은 [`.claude/docs/init_plan.md`](./.claude/docs/init_plan.md)를 참고하세요.
 
-> **현재 상태: Phase 4까지 구현 완료 (MVP 1 달성)** — Phase 1(Maven 의존성 분석), Phase 2(SBOM + OSV 취약점 매칭), Phase 3(CLI 리포트 + React 대시보드, DB 연동), Phase 4(Java 소스 사용 분석)가 구현되어 있습니다. Spring 엔드포인트/도달 가능성 분석, 위험도 산정(Phase 5~7)은 아직 스텁(`NotImplementedError`) 상태이며, 대시보드의 Reachable/Risk Score 열은 그 Phase들이 끝나기 전까지 값을 지어내지 않고 `—`로 표시됩니다. 실제 동작 예시는 아래 [현재 구현 상태](#현재-구현-상태-phase-4까지)를 참고하세요.
+> **현재 상태: Phase 4까지 구현 완료 (MVP 1 달성) + GitHub 저장소 입력** — Phase 1(Maven 의존성 분석), Phase 2(SBOM + OSV 취약점 매칭), Phase 3(CLI 리포트 + React 대시보드, DB 연동), Phase 4(Java 소스 사용 분석)가 구현되어 있고, 로컬 경로뿐 아니라 공개 GitHub 저장소 URL로도 스캔할 수 있습니다. Spring 엔드포인트/도달 가능성 분석, 위험도 산정(Phase 5~7)은 아직 스텁(`NotImplementedError`) 상태이며, 대시보드의 Reachable/Risk Score 열은 그 Phase들이 끝나기 전까지 값을 지어내지 않고 `—`로 표시됩니다. 실제 동작 예시는 아래 [현재 구현 상태](#현재-구현-상태-phase-4까지)를 참고하세요.
 >
 > **OSV 조회와 네트워크 전송**: `vulntrace vulnerabilities`/`scan`(기본 동작) 또는 API의 `POST /api/projects/:id/scans`(`checkVulnerabilities` 기본값 `true`)는 확정된 의존성의 패키지 좌표(`groupId:artifactId@version`, purl)를 `https://api.osv.dev`로 전송해 취약점을 조회합니다. 소스 코드나 파일 내용은 전송하지 않습니다. CLI에서는 `--skip-vulnerabilities`로, API에서는 `checkVulnerabilities: false`로 끌 수 있습니다.
 
@@ -39,7 +39,7 @@ React Dashboard / CLI Report
 | 2 | CycloneDX SBOM + OSV 취약점 매칭 | ✅ 완료 |
 | 3 | CLI 리포트 + React 대시보드 (PostgreSQL 연동) | ✅ 완료 |
 | 4 | Java 소스 사용 분석 (import / 객체 생성 / 메서드 호출 증거, 취약 API 사용 여부) | ✅ 완료 — MVP 1 |
-| (MVP 1 이후) | GitHub 저장소 입력 | ⏳ 다음 단계 |
+| (MVP 1 이후) | GitHub 저장소 입력 (공개 저장소 URL → 얕은 clone → 분석 → 삭제, commit SHA 기록) | ✅ 완료 |
 | 5~8 | Spring 엔드포인트 / 도달 가능성 / 위험도 / 조치 안내 | 미착수 |
 
 아래 결과는 `fixtures/spring-vulnerable-used`를 실제로 스캔해서 얻은 것입니다(2026-10-17, 실제 OSV 조회, `--allow-maven` 없이 실행). OSV 데이터는 계속 갱신되므로 취약점 개수는 실행 시점에 따라 달라질 수 있습니다. 픽스처의 기준 취약점인 `commons-text 1.9` → CVE-2022-42889(Critical, fixed `1.10.0`)는 항상 검출되어야 합니다.
@@ -131,6 +131,36 @@ java-sec-code에서 groupId로 패키지를 추정한 매핑이 틀린 경우가
 - 안 쓰는데 `used`로 나오던 것: poi. 실제 import는 poi-ooxml의 `org.apache.poi.xssf`뿐
 - 증거가 섞이던 것: spring-security-web에 core·config 패키지 import가 함께 들어가던 문제
 
+### GitHub 저장소 스캔
+
+CLI의 모든 명령, API의 프로젝트 등록, 웹 등록 폼에서 로컬 경로 대신 `https://github.com/<owner>/<repo>`를 쓸 수 있습니다. 브랜치나 태그는 CLI `--ref`, API `ref`로 지정하고, 지정하지 않으면 기본 브랜치를 받습니다.
+
+```bash
+node apps/cli/dist/index.js scan https://github.com/spring-projects/spring-petclinic --ref main
+```
+
+```text
+[REPOSITORY] fetching https://github.com/spring-projects/spring-petclinic (main)
+[REPOSITORY] cloned https://github.com/spring-projects/spring-petclinic at 500158f732419217507c7656904b8e6aa1bcc0d6
+...
+[REPOSITORY] temporary workspace removed
+Project: spring-petclinic
+Source:  https://github.com/spring-projects/spring-petclinic (main) @ 500158f732419217507c7656904b8e6aa1bcc0d6
+State:   COMPLETED
+```
+
+```bash
+curl -X POST http://127.0.0.1:3001/api/projects -H 'content-type: application/json' \
+  -d '{"name":"petclinic","sourceType":"GIT","repoUrl":"https://github.com/spring-projects/spring-petclinic"}'
+```
+
+clone한 저장소는 신뢰할 수 없는 입력으로 다룹니다.
+
+- `https://github.com/<owner>/<repo>` 형식만 받습니다. 자격 증명·포트·쿼리가 붙은 URL, 다른 호스트, `file://`·`ssh`·`ext::` 같은 다른 전송 방식은 거부합니다. git에도 https 전송만 허용합니다.
+- `--depth 1` 얕은 clone이고 서브모듈, LFS 파일, 심볼릭 링크, git hook, 저장된 자격 증명을 쓰지 않습니다. 인증을 묻지 않으므로 없거나 비공개인 저장소는 바로 `CLONE_FAILED`가 됩니다.
+- 받은 코드는 빌드하거나 실행하지 않습니다. 파일 5만 개 / 500 MiB를 넘으면 분석하지 않고 실패로 기록합니다. clone은 OS 임시 폴더에 만들고 스캔이 끝나면(실패해도) 지웁니다.
+- 분석한 commit SHA를 스캔 결과(`scan_jobs.commit_sha`)에 남기고, 의존성 증거 경로는 임시 폴더가 아니라 저장소 기준(`pom.xml`)으로 저장합니다.
+
 ### 알려진 한계 (Phase 4 기준)
 
 소스 사용 분석 (Stage A, TypeScript 경량 파서):
@@ -146,6 +176,7 @@ java-sec-code에서 groupId로 패키지를 추정한 매핑이 틀린 경우가
 - 대시보드의 "Run scan"은 기본 옵션(Maven 미실행, OSV 조회)으로만 스캔합니다. 옵션을 고르는 UI는 아직 없습니다.
 - 스캔은 요청 안에서 동기로 실행됩니다. 스캔 결과 저장이 하나의 트랜잭션으로 묶여 있지 않고, 프로젝트 목록 집계는 프로젝트마다 쿼리를 따로 보냅니다(N+1).
 - 인증/권한, 페이지네이션은 없습니다.
+- GitHub 입력은 공개 저장소만 지원합니다. GitHub 외 호스트와 commit SHA를 ref로 지정하는 것은 아직 안 됩니다. 크기 상한은 clone이 끝난 뒤에 검사하므로, 받는 동안에는 타임아웃(120초)만 적용됩니다.
 
 ---
 
@@ -180,6 +211,7 @@ packages/
   sbom/                 CycloneDX SBOM 생성
   vulnerability/        OSV 취약점 provider
   source-analyzer/      Java import/사용처 분석 (초기 대상: Java)
+  repository-source/    스캔 대상 가져오기 — 로컬 폴더 / 공개 GitHub 저장소 얕은 clone
   spring-analyzer/      Spring 엔드포인트 탐지 (초기 대상: Spring Boot)
   reachability/         엔드포인트 → 취약 API 사용처 호출 경로 분석
   risk/                 위험도 점수 산정
@@ -190,7 +222,7 @@ prisma/       PostgreSQL 스키마 (projects, scans, dependencies, vulnerabiliti
 fixtures/     정적 분석 대상으로만 쓰이는 샘플 Maven/Spring Boot 프로젝트 (빌드/실행하지 않음)
 ```
 
-의존 방향: `web → shared`, `api/cli → core → (dependency-analyzer, sbom, vulnerability, source-analyzer, spring-analyzer, reachability, risk) → shared`.
+의존 방향: `web → shared`, `api/cli → core → (repository-source, dependency-analyzer, sbom, vulnerability, source-analyzer, spring-analyzer, reachability, risk) → shared`.
 
 ---
 
@@ -271,7 +303,7 @@ pnpm --filter @vulntrace/cli dev -- vulnerabilities ./fixtures/spring-vulnerable
 pnpm --filter @vulntrace/cli dev -- scan ./fixtures/spring-vulnerable-used --skip-vulnerabilities --sbom ./bom.json
 ```
 
-주요 옵션: `--allow-maven`(전이 의존성 해석을 위해 `mvn dependency:tree` 실행 허용, 기본 비활성), `--skip-vulnerabilities`(OSV 조회를 끔, 네트워크 전송 없음), `--sbom <file>`(생성된 CycloneDX SBOM을 JSON 파일로 저장).
+대상은 로컬 경로 또는 GitHub URL입니다(`--ref <branch-or-tag>`, 위 [GitHub 저장소 스캔](#github-저장소-스캔) 참고). 주요 옵션: `--allow-maven`(전이 의존성 해석을 위해 `mvn dependency:tree` 실행 허용, 기본 비활성), `--skip-vulnerabilities`(OSV 조회를 끔, 네트워크 전송 없음), `--sbom <file>`(생성된 CycloneDX SBOM을 JSON 파일로 저장).
 
 또는 한 번 빌드한 뒤 컴파일된 바이너리를 직접 실행할 수 있습니다.
 

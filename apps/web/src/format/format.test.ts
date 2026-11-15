@@ -3,6 +3,7 @@ import { formatDate } from './date';
 import { formatFixedVersions } from './fixedVersions';
 import type { FindingUsageSummaryDto } from '@vulntrace/shared';
 import { formatSeverity } from './severity';
+import { formatCommitSha, formatProjectSource } from './source';
 import { formatPackageMappingBasis, formatUsed, formatVulnerableApi } from './usage';
 
 describe('formatSeverity', () => {
@@ -62,5 +63,31 @@ describe('usage formatting', () => {
   it('labels the package mapping basis', () => {
     expect(formatPackageMappingBasis('CURATED')).toBe('curated mapping');
     expect(formatPackageMappingBasis('GROUP_ID')).toBe('assumed from groupId');
+  });
+});
+
+describe('formatProjectSource / formatCommitSha', () => {
+  const base = { id: 'p', name: 'demo', createdAt: '2026-11-15T00:00:00Z' };
+
+  it('describes local and GitHub sources', () => {
+    expect(formatProjectSource({ ...base, sourceType: 'LOCAL', path: 'C:/repos/demo' })).toBe(
+      'C:/repos/demo',
+    );
+    expect(
+      formatProjectSource({ ...base, sourceType: 'GIT', repoUrl: 'https://github.com/a/b' }),
+    ).toBe('https://github.com/a/b');
+    expect(
+      formatProjectSource({
+        ...base,
+        sourceType: 'GIT',
+        repoUrl: 'https://github.com/a/b',
+        ref: 'v1',
+      }),
+    ).toBe('https://github.com/a/b (v1)');
+  });
+
+  it('shortens a commit SHA and shows a dash when there is none', () => {
+    expect(formatCommitSha('0123456789abcdef0123456789abcdef01234567')).toBe('0123456789ab');
+    expect(formatCommitSha(undefined)).toBe('—');
   });
 });

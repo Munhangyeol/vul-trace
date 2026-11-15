@@ -120,6 +120,9 @@ importers:
       '@vulntrace/reachability':
         specifier: workspace:*
         version: link:../reachability
+      '@vulntrace/repository-source':
+        specifier: workspace:*
+        version: link:../repository-source
       '@vulntrace/risk':
         specifier: workspace:*
         version: link:../risk
@@ -150,6 +153,15 @@ importers:
 
   packages/reachability:
     dependencies:
+      '@vulntrace/shared':
+        specifier: workspace:*
+        version: link:../shared
+
+  packages/repository-source:
+    dependencies:
+      '@vulntrace/dependency-analyzer':
+        specifier: workspace:*
+        version: link:../dependency-analyzer
       '@vulntrace/shared':
         specifier: workspace:*
         version: link:../shared

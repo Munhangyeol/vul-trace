@@ -13,5 +13,5 @@
   "scripts": {
     "build": "tsc -b"
   },
-  "dependencies": { "@vulntrace/shared": "workspace:*", "@vulntrace/dependency-analyzer": "workspace:*", "@vulntrace/sbom": "workspace:*", "@vulntrace/vulnerability": "workspace:*", "@vulntrace/source-analyzer": "workspace:*", "@vulntrace/spring-analyzer": "workspace:*", "@vulntrace/reachability": "workspace:*", "@vulntrace/risk": "workspace:*" }
+  "dependencies": { "@vulntrace/shared": "workspace:*", "@vulntrace/dependency-analyzer": "workspace:*", "@vulntrace/sbom": "workspace:*", "@vulntrace/vulnerability": "workspace:*", "@vulntrace/source-analyzer": "workspace:*", "@vulntrace/repository-source": "workspace:*", "@vulntrace/spring-analyzer": "workspace:*", "@vulntrace/reachability": "workspace:*", "@vulntrace/risk": "workspace:*" }
 }

@@ -15,6 +15,8 @@ export interface ProcessRunOptions {
   maxOutputBytes: number;
   /** POSIX-only knob (CLAUDE.md §15 Windows note); ignored elsewhere. */
   shell?: boolean;
+  /** Extra environment variables, merged over the current process environment. */
+  env?: Readonly<Record<string, string>>;
 }
 
 export interface ProcessRunner {
@@ -44,6 +46,7 @@ export class NodeProcessRunner implements ProcessRunner {
         cwd: options.cwd,
         shell: options.shell ?? false,
         windowsHide: true,
+        env: options.env ? { ...process.env, ...options.env } : process.env,
       });
 
       const timer = setTimeout(() => {

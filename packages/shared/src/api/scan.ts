@@ -11,4 +11,5 @@ export interface ScanJobDto {
   stages: ScanStageResult[];
   unresolvedDependencies: UnresolvedDependency[];
   vulnerabilityCoverage: VulnerabilityCoverage;
+  commitSha?: string;
 }

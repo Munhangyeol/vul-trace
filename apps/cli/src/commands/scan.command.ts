@@ -1,33 +1,41 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import type { Command } from 'commander';
-import type { ScanOrchestrator } from '@vulntrace/core';
+import type { RepositoryScanRunner } from '@vulntrace/core';
 import { renderSummary, renderVulnerabilityTable } from '../render/text-report.js';
 import { addMavenOptions, parseMavenOptions } from './mavenOptions.js';
 import type { MavenCliOptions } from './mavenOptions.js';
 import { addVulnerabilityOptions, parseVulnerabilityOptions } from './vulnerabilityOptions.js';
 import type { VulnerabilityCliOptions } from './vulnerabilityOptions.js';
 import { runScan } from './runScan.js';
+import { addSourceOptions, TARGET_ARGUMENT_DESCRIPTION } from './sourceOptions.js';
+import type { SourceCliOptions } from './sourceOptions.js';
 
-interface ScanCliOptions extends MavenCliOptions, VulnerabilityCliOptions {
+interface ScanCliOptions extends SourceCliOptions, MavenCliOptions, VulnerabilityCliOptions {
   sbom?: string;
   force?: boolean;
 }
 
-export function registerScanCommand(program: Command, orchestrator: ScanOrchestrator): void {
+export function registerScanCommand(program: Command, runner: RepositoryScanRunner): void {
   const command = program
     .command('scan')
-    .description('Scan a local Maven project and print a summary')
-    .argument('<path>', 'path to the project root')
+    .description('Scan a Maven project (local path or GitHub repository) and print a summary')
+    .argument('<target>', TARGET_ARGUMENT_DESCRIPTION)
     .option('--sbom <file>', 'write the generated CycloneDX SBOM as JSON to this file')
     .option('--force', 'with --sbom, overwrite the output file if it already exists');
+  addSourceOptions(command);
   addMavenOptions(command);
   addVulnerabilityOptions(command);
 
-  command.action(async (path: string, options: ScanCliOptions) => {
-    const report = await runScan(orchestrator, path, {
-      ...parseMavenOptions(options),
-      ...parseVulnerabilityOptions(options),
-    });
+  command.action(async (target: string, options: ScanCliOptions) => {
+    const report = await runScan(
+      runner,
+      target,
+      {
+        ...parseMavenOptions(options),
+        ...parseVulnerabilityOptions(options),
+      },
+      options,
+    );
 
     if (options.sbom) {
       if (!report.sbom) {

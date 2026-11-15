@@ -1,7 +1,18 @@
 import { existsSync, statSync } from 'node:fs';
 import type { FastifyPluginAsync } from 'fastify';
-import { compareFindings, summarizeScan } from '@vulntrace/core';
-import type { ProjectListItemDto, ProjectSummaryDto, ScanJob } from '@vulntrace/shared';
+import {
+  compareFindings,
+  parseGitHubRepositoryUrl,
+  summarizeScan,
+  validateGitRef,
+} from '@vulntrace/core';
+import type {
+  ProjectListItemDto,
+  ProjectSource,
+  ProjectSourceType,
+  ProjectSummaryDto,
+  ScanJob,
+} from '@vulntrace/shared';
 import type { Container } from '../container.js';
 import { toProjectDependencyDto } from '../dto/dependency.dto.js';
 import { toProjectDto } from '../dto/project.dto.js';
@@ -37,20 +48,79 @@ async function loadLatestScanSummary(
 
 interface CreateProjectBody {
   name: string;
-  path: string;
+  /** Defaults to LOCAL so existing `{ name, path }` clients keep working. */
+  sourceType?: ProjectSourceType;
+  path?: string;
+  repoUrl?: string;
+  ref?: string;
 }
 
 const createProjectSchema = {
   body: {
     type: 'object',
-    required: ['name', 'path'],
+    required: ['name'],
     additionalProperties: false,
     properties: {
       name: { type: 'string', minLength: 1 },
+      sourceType: { type: 'string', enum: ['LOCAL', 'GIT'] },
       path: { type: 'string', minLength: 1 },
+      repoUrl: { type: 'string', minLength: 1, maxLength: 300 },
+      ref: { type: 'string', minLength: 1, maxLength: 200 },
     },
   },
 };
+
+type SourceValidation =
+  | { ok: true; source: ProjectSource }
+  | { ok: false; error: string; message: string };
+
+/**
+ * GIT input is validated for shape only — no network access at registration; a missing
+ * repository surfaces as a FAILED REPOSITORY_FETCH stage on the first scan.
+ */
+function validateProjectSource(body: CreateProjectBody, scanRoot: string | undefined): SourceValidation {
+  const sourceType = body.sourceType ?? 'LOCAL';
+
+  if (sourceType === 'GIT') {
+    if (body.path !== undefined) {
+      return { ok: false, error: 'INVALID_SOURCE', message: 'path is not allowed for a GIT project' };
+    }
+    if (!body.repoUrl) return { ok: false, error: 'INVALID_SOURCE', message: 'repoUrl is required' };
+    const repository = parseGitHubRepositoryUrl(body.repoUrl);
+    if (!repository.ok) {
+      return { ok: false, error: repository.error.code, message: repository.error.message };
+    }
+    if (body.ref !== undefined) {
+      const ref = validateGitRef(body.ref);
+      if (!ref.ok) return { ok: false, error: ref.error.code, message: ref.error.message };
+    }
+    return {
+      ok: true,
+      source: { type: 'GIT', repoUrl: repository.value.url, ...(body.ref ? { ref: body.ref } : {}) },
+    };
+  }
+
+  if (body.repoUrl !== undefined || body.ref !== undefined) {
+    return {
+      ok: false,
+      error: 'INVALID_SOURCE',
+      message: 'repoUrl/ref are only allowed for a GIT project',
+    };
+  }
+  const { path } = body;
+  if (!path) return { ok: false, error: 'INVALID_SOURCE', message: 'path is required' };
+  if (!isWithinScanRoot(path, scanRoot)) {
+    return { ok: false, error: 'PATH_NOT_ALLOWED', message: 'path is outside the allowed scan root' };
+  }
+  if (!existsSync(path) || !statSync(path).isDirectory()) {
+    return {
+      ok: false,
+      error: 'PATH_NOT_FOUND',
+      message: `path does not exist or is not a directory: ${path}`,
+    };
+  }
+  return { ok: true, source: { type: 'LOCAL', path } };
+}
 
 export function createProjectRoutes(container: Container): FastifyPluginAsync {
   return async (app) => {
@@ -58,23 +128,15 @@ export function createProjectRoutes(container: Container): FastifyPluginAsync {
       '/projects',
       { schema: createProjectSchema },
       async (request, reply) => {
-        const { name, path } = request.body;
-
-        if (!isWithinScanRoot(path, container.scanRoot)) {
-          return reply
-            .code(400)
-            .send({ error: 'PATH_NOT_ALLOWED', message: `path is outside the allowed scan root` });
-        }
-        if (!existsSync(path) || !statSync(path).isDirectory()) {
-          return reply
-            .code(400)
-            .send({
-              error: 'PATH_NOT_FOUND',
-              message: `path does not exist or is not a directory: ${path}`,
-            });
+        const validation = validateProjectSource(request.body, container.scanRoot);
+        if (!validation.ok) {
+          return reply.code(400).send({ error: validation.error, message: validation.message });
         }
 
-        const project = await container.projectRepository.create({ name, path });
+        const project = await container.projectRepository.create({
+          name: request.body.name,
+          source: validation.source,
+        });
         return reply.code(201).send(toProjectDto(project));
       },
     );
@@ -92,6 +154,7 @@ export function createProjectRoutes(container: Container): FastifyPluginAsync {
               id: loaded.scan.id,
               state: loaded.scan.state,
               finishedAt: loaded.scan.finishedAt,
+              ...(loaded.scan.commitSha ? { commitSha: loaded.scan.commitSha } : {}),
               dependencyCount: loaded.summary.dependencies,
               vulnerabilityCount: loaded.summary.vulnerabilities,
               bySeverity: loaded.summary.bySeverity,
@@ -127,6 +190,7 @@ export function createProjectRoutes(container: Container): FastifyPluginAsync {
                 state: loaded.scan.state,
                 startedAt: loaded.scan.startedAt,
                 finishedAt: loaded.scan.finishedAt,
+                ...(loaded.scan.commitSha ? { commitSha: loaded.scan.commitSha } : {}),
                 stages: loaded.scan.stages,
                 dependencies: loaded.summary.dependencies,
                 vulnerabilities: loaded.summary.vulnerabilities,

@@ -7,19 +7,27 @@ import type {
   ScanRepository,
   StoredFinding,
 } from '@vulntrace/core';
-import { createScanOrchestrator, silentScanLogger } from '@vulntrace/core';
-import type { Project, ProjectDependency, ScanJob, VulnerabilityFinding } from '@vulntrace/shared';
+import type { GitRepositoryPort } from '@vulntrace/core';
+import { createRepositoryScanRunner, silentScanLogger } from '@vulntrace/core';
+import { ok } from '@vulntrace/shared';
+import type {
+  Project,
+  ProjectDependency,
+  ProjectSource,
+  ScanJob,
+  VulnerabilityFinding,
+} from '@vulntrace/shared';
 import type { Container } from './container.js';
 import { buildServer } from './server.js';
 
 class InMemoryProjectRepository implements ProjectRepository {
   private readonly projects: Project[] = [];
 
-  async create(input: { name: string; path: string }): Promise<Project> {
+  async create(input: { name: string; source: ProjectSource }): Promise<Project> {
     const project: Project = {
       id: randomUUID(),
       name: input.name,
-      path: input.path,
+      source: input.source,
       createdAt: new Date().toISOString(),
     };
     this.projects.push(project);
@@ -85,9 +93,37 @@ class InMemoryFindingRepository implements FindingRepository {
   }
 }
 
+const FAKE_SHA = 'c'.repeat(40);
+
+/**
+ * Stands in for a real clone (no network in base tests): "clones" by pointing at a fixture
+ * folder, and counts releases so the test can check the workspace is always cleaned up.
+ */
+class FixtureGitSource implements GitRepositoryPort {
+  releases = 0;
+
+  async acquire(target: { type: 'GIT'; repoUrl: string; ref?: string }) {
+    return ok({
+      workDir: fixturePath('spring-vulnerable-used'),
+      evidence: {
+        type: 'GIT' as const,
+        repoUrl: target.repoUrl,
+        ref: target.ref,
+        commitSha: FAKE_SHA,
+      },
+      release: async () => {
+        this.releases += 1;
+        return {};
+      },
+    });
+  }
+}
+
+const gitSource = new FixtureGitSource();
+
 function testContainer(): Container {
   return {
-    scanOrchestrator: createScanOrchestrator({ logger: silentScanLogger }),
+    scanRunner: createRepositoryScanRunner({ logger: silentScanLogger, gitSource }),
     projectRepository: new InMemoryProjectRepository(),
     scanRepository: new InMemoryScanRepository(),
     findingRepository: new InMemoryFindingRepository(),
@@ -576,6 +612,107 @@ describe('api server', () => {
     });
     expect(depsRes.statusCode).toBe(200);
     expect(depsRes.json()).toEqual([]);
+  });
+});
+
+describe('GitHub repository projects', () => {
+  it('registers a GIT project with a normalized URL and no local path', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      payload: {
+        name: 'petclinic',
+        sourceType: 'GIT',
+        repoUrl: 'https://github.com/spring-projects/spring-petclinic.git',
+        ref: 'main',
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json() as Record<string, unknown>;
+    expect(body).toMatchObject({
+      sourceType: 'GIT',
+      repoUrl: 'https://github.com/spring-projects/spring-petclinic',
+      ref: 'main',
+    });
+    expect(body).not.toHaveProperty('path');
+  });
+
+  it('keeps accepting the legacy { name, path } body as a LOCAL project', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      payload: { name: 'legacy', path: fixturePath('spring-safe-app') },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ sourceType: 'LOCAL', path: fixturePath('spring-safe-app') });
+  });
+
+  it.each([
+    [{ sourceType: 'GIT', repoUrl: 'file:///etc' }, 'INVALID_REPOSITORY_URL'],
+    [{ sourceType: 'GIT', repoUrl: 'https://user:token@github.com/a/b' }, 'INVALID_REPOSITORY_URL'],
+    [
+      { sourceType: 'GIT', repoUrl: 'https://github.com/a/b', ref: '--upload-pack=x' },
+      'INVALID_REF',
+    ],
+    [{ sourceType: 'GIT' }, 'INVALID_SOURCE'],
+    [{ sourceType: 'GIT', repoUrl: 'https://github.com/a/b', path: '.' }, 'INVALID_SOURCE'],
+    [{ sourceType: 'LOCAL', path: '.', repoUrl: 'https://github.com/a/b' }, 'INVALID_SOURCE'],
+  ])('rejects %o', async (payload, error) => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      payload: { name: 'x', ...payload },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error });
+  });
+
+  it('scans a GIT project, records the commit SHA, and stores repository-relative evidence', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      payload: { name: 'git-demo', sourceType: 'GIT', repoUrl: 'https://github.com/example/demo' },
+    });
+    const project = createRes.json() as { id: string };
+    const releasesBefore = gitSource.releases;
+
+    const scanRes = await app.inject({
+      method: 'POST',
+      url: `/api/projects/${project.id}/scans`,
+      payload: { checkVulnerabilities: false },
+    });
+    expect(scanRes.statusCode).toBe(201);
+    const scan = scanRes.json() as {
+      commitSha?: string;
+      stages: { stage: string; status: string }[];
+    };
+    expect(scan.commitSha).toBe(FAKE_SHA);
+    expect(scan.stages[0]).toEqual({ stage: 'REPOSITORY_FETCH', status: 'SUCCEEDED' });
+    expect(gitSource.releases).toBe(releasesBefore + 1);
+
+    const depsRes = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${project.id}/dependencies`,
+    });
+    const dependencies = depsRes.json() as { source: { filePath: string } }[];
+    expect(dependencies.length).toBeGreaterThan(0);
+    expect(dependencies.every((d) => d.source.filePath === 'pom.xml')).toBe(true);
+
+    const summaryRes = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${project.id}/summary`,
+    });
+    expect(summaryRes.json()).toMatchObject({ latestScan: { commitSha: FAKE_SHA } });
+
+    const listRes = await app.inject({ method: 'GET', url: '/api/projects' });
+    expect(listRes.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: project.id,
+          latestScan: expect.objectContaining({ commitSha: FAKE_SHA }),
+        }),
+      ]),
+    );
   });
 });
 

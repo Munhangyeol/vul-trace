@@ -1,10 +1,10 @@
 import type {
   FindingRepository,
   ProjectRepository,
-  ScanOrchestrator,
+  RepositoryScanRunner,
   ScanRepository,
 } from '@vulntrace/core';
-import { createConsoleScanLogger, createScanOrchestrator } from '@vulntrace/core';
+import { createConsoleScanLogger, createRepositoryScanRunner } from '@vulntrace/core';
 import { createPrismaClient } from './persistence/prisma/client.js';
 import { PrismaFindingRepository } from './persistence/prisma/FindingRepository.prisma.js';
 import { PrismaProjectRepository } from './persistence/prisma/ProjectRepository.prisma.js';
@@ -12,7 +12,8 @@ import { PrismaScanRepository } from './persistence/prisma/ScanRepository.prisma
 
 /** Manual DI: everything the routes need, assembled once at startup. */
 export interface Container {
-  scanOrchestrator: ScanOrchestrator;
+  /** Local folders and GitHub repositories both go through this one pipeline entry point. */
+  scanRunner: RepositoryScanRunner;
   projectRepository: ProjectRepository;
   scanRepository: ScanRepository;
   findingRepository: FindingRepository;
@@ -24,7 +25,7 @@ export function createContainer(options: { scanRoot?: string } = {}): Container 
   const prisma = createPrismaClient();
 
   return {
-    scanOrchestrator: createScanOrchestrator({ logger: createConsoleScanLogger() }),
+    scanRunner: createRepositoryScanRunner({ logger: createConsoleScanLogger() }),
     projectRepository: new PrismaProjectRepository(prisma),
     scanRepository: new PrismaScanRepository(prisma),
     findingRepository: new PrismaFindingRepository(prisma),

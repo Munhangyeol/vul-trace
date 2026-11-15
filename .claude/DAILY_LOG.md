@@ -178,3 +178,41 @@
 
 - MVP 1 이후 GitHub 저장소 입력 (overview-plan §4)
 - 그다음 Phase 5 — Spring 엔드포인트 분석
+
+## 2026-11-15
+
+### 완료
+
+- GitHub 저장소 입력 구현 (계획 `.claude/docs/overview-plan.md` §4 "GitHub Repository Input")
+  - 변경 파일: `packages/repository-source/*`(신규: `githubUrl`, `GitRepositorySource`, `LocalPathSource`, `measureWorkspace`, `errors`, `types` + 테스트), `packages/core/src/{RepositoryScanRunner,createScanOrchestrator,ScanOrchestrator,index}.ts`, `packages/core/src/logging/ScanLogger.ts`, `packages/core/src/ports/ProjectRepository.ts`, `packages/dependency-analyzer/src/process/ProcessRunner.ts`, `packages/shared/src/types/project.ts`, `packages/shared/src/api/{project,scan,summary}.ts`, `prisma/schema.prisma`, `prisma/migrations/20261115000000_github_repository_input`, `apps/api/src/{container,dto/project.dto,dto/scan.dto,routes/projects.route,routes/scans.route}.ts`, `apps/api/src/persistence/prisma/{ProjectRepository,ScanRepository}.prisma.ts`, `apps/cli/src/commands/*`, `apps/cli/src/render/text-report.ts`, `apps/web/src/{api/queries,format/source,routes/ProjectListPage,routes/ProjectDashboardPage}.ts(x)`, `apps/web/src/styles.css`, `.claude/launch.json`, `README.md`, `.claude/docs/overview-plan.md`
+  - 변경 이유: 최종 제품은 로컬 경로가 아니라 GitHub 저장소의 소스를 분석해야 함. 분석기는 폴더 경로만 받도록 두고 저장소 가져오기를 별도 입력 단계로 추가
+  - 주요 변경 사항:
+    - `RepositoryScanRunner`가 저장소 가져오기 → 기존 `ScanOrchestrator`(변경 없음) → 임시 폴더 삭제를 묶음. GIT 스캔에만 `REPOSITORY_FETCH` 단계 추가
+    - clone 보안: https://github.com 형식만 허용, `protocol.allow=never`+https만 허용, `credential.helper=` 비움, `GIT_TERMINAL_PROMPT=0`/`GCM_INTERACTIVE=never`, 빈 hooks 폴더, `core.symlinks=false`, LFS·서브모듈 끔, `--` 뒤에 URL, 파일 5만 개/500 MiB 상한
+    - clone 폴더 절대 경로를 저장소 기준 상대 경로로 바꿔 저장(pom.xml 증거, 단계 사유, 경고, git stderr)
+    - API 등록 DTO에 `sourceType`/`repoUrl`/`ref`(기존 `{ name, path }`는 LOCAL로 유지), 스캔 결과에 `commitSha`. CLI 모든 명령이 URL과 `--ref` 지원. 웹 등록 폼 소스 선택, 목록·대시보드에 출처와 commit 표시
+  - 검증: typecheck / test 317개 / build 통과. spring-petclinic·java-sec-code를 URL과 로컬 경로로 스캔해 결과 일치 확인(finding 순서만 다름). 실제 PostgreSQL에 마이그레이션 적용(기존 프로젝트 6개는 LOCAL로 채워짐) 후 API로 text4shell 스캔해 `HelloController.java:5/20/23` 증거 확인, 없는 저장소 `CLONE_FAILED`, `file://` 400. 웹에서 GitHub URL 등록 → 스캔 → commit `500158f73241` 표시, 콘솔 에러 없음. 스캔 후 `%TEMP%`에 `vulntrace-repo-*` 남지 않음
+
+### 문제 해결
+
+- 문제: 변경 파일에 `prettier --write`를 디렉터리 단위로 돌려 이번 작업과 무관한 파일과 줄까지 재포맷됨
+  - 원인: 기존 코드에 Prettier 미적용 부분이 남아 있었음(2026-10-17에 그대로 두기로 한 경고)
+  - 해결 방법: 무관한 파일 6개는 되돌리고, 기존 포맷 차이가 있던 파일 7개는 원본으로 되돌린 뒤 이번 변경만 다시 적용
+- 문제: 없는 저장소 스캔 실패 사유에 `Cloning into 'C:\Users\...\vulntrace-repo-xxx\repo'` 임시 경로가 저장됨
+  - 원인: git stderr를 그대로 사유에 넣었음
+  - 해결 방법: stderr의 작업 폴더 경로를 `<workspace>`로 바꾸고 테스트 추가
+- 문제: `pnpm dev:api`(tsx watch)가 출력 없이 포트를 열지 않음. 서버 종료 후 재시작 시 `listen EFAULT`
+  - 원인: 확인 못 함. 이전에 기록한 Windows 하위 node 프로세스 잔존 문제와 비슷함
+  - 해결 방법: 검증은 빌드된 API(`node apps/api/dist/main.js`, launch 설정 `api-built`)로 진행. 재시작은 잠시 뒤 재시도하니 성공
+
+### 미완료
+
+- 비공개 저장소(토큰), GitHub 외 호스트, commit SHA를 ref로 지정하는 기능
+- 크기 상한은 clone 후에 검사(받는 동안은 타임아웃만)
+- 스캔이 요청 안에서 동기 실행이라 큰 저장소는 HTTP 요청이 길어짐(petclinic 웹 스캔 약 30~40초)
+- `tsx watch` dev 서버가 뜨지 않는 원인 미확인
+- 이전 미완료 항목(Log4j API/구현 분리 판정, 취약 API 목록 확대 등)은 그대로
+
+### 다음 작업
+
+- Phase 5 — Spring 엔드포인트 분석

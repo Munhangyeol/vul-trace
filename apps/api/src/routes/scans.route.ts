@@ -37,7 +37,12 @@ export function createScanRoutes(container: Container): FastifyPluginAsync {
           return reply.code(404).send({ error: 'NOT_FOUND', message: 'project not found' });
         }
 
-        const report = await container.scanOrchestrator.run(project.path, {
+        const { source } = project;
+        const target =
+          source.type === 'GIT'
+            ? { type: 'GIT' as const, repoUrl: source.repoUrl, ref: source.ref }
+            : { type: 'LOCAL' as const, path: source.path };
+        const report = await container.scanRunner.run(target, {
           allowMaven: request.body.allowMaven ?? false,
           mavenTimeoutMs: request.body.mavenTimeoutMs,
           checkVulnerabilities: request.body.checkVulnerabilities ?? true,
@@ -53,6 +58,9 @@ export function createScanRoutes(container: Container): FastifyPluginAsync {
           stages: report.stages,
           unresolvedDependencies: report.unresolvedDependencies,
           vulnerabilityCoverage: report.vulnerabilityCoverage,
+          ...(report.source?.type === 'GIT' && report.source.commitSha
+            ? { commitSha: report.source.commitSha }
+            : {}),
         };
 
         await container.scanRepository.save(scanJob);
