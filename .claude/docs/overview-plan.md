@@ -327,7 +327,8 @@ spring-vulnerable-reachable → reachable=true
 | 부모 POM 버전 관리로 인한 pom 단독 파싱 한계 | 1 | `dependency:tree` 보완, 미확정 버전 경고 |
 | OSV 결과 변동성 | 2 | 테스트는 녹화 응답 사용, 픽스처 기대값 한정 |
 | artifact → Java 패키지 매핑 방법 | 4 | 결정(phase-4 D2): 수동 매핑표 + groupId 추정, 근거(`basis`) 표시. JAR 인덱싱은 이후 검토 |
-| 취약 API(함수 단위) 정보 출처 | 4, 6 | 결정(phase-4 D3): OSV 응답에 Maven용 함수 단위 필드 없음 확인 → 수동 목록(`vulnerableApis.ts`), 없으면 `NO_API_INFO` |
+| 취약 API(함수 단위) 정보 출처 | 4, 6 | 결정(phase-4 D3): OSV 응답에 Maven용 함수 단위 필드 없음 확인 → 수동 목록(`vulnerableApis.ts`), 없으면 `NO_API_INFO`. 2026-11-15 확대: Log4Shell 계열 3건, snakeyaml 8건, fastjson 1건, SpEL 3건(OSV가 준 GHSA/CVE ID 기준). jackson-databind 계열은 CVE별 조건 확인 후 추가 |
+| API와 구현이 나뉜 라이브러리 | 4, 6 | 결정(2026-11-15): 선별한 관계표(`apiImplementations.ts`)로 API 사용 → 구현 `used`(`viaApi` 경로·근거 저장). 로깅 라이브러리만, `log4j-to-slf4j`가 있으면 연결 안 함 |
 | TS 기반 Java 파싱 정밀도 | 4~6 | 파서 추상화 유지, 한계 명시, 필요 시 Stage B |
 | 다형성/DI/AOP로 인한 콜 그래프 누락 | 6 | "분석 범위" 표기, false negative 가능성 문서화 |
 | 인증 요구 여부 정적 판단 | 7 | 판단 불가 시 unknown, 점수 근거에 명시 |

@@ -213,6 +213,25 @@
 - `tsx watch` dev 서버가 뜨지 않는 원인 미확인
 - 이전 미완료 항목(Log4j API/구현 분리 판정, 취약 API 목록 확대 등)은 그대로
 
+- `pnpm dev:api`가 출력 없이 뜨지 않던 문제 해결
+  - 변경 파일: `apps/api/scripts/dev.mjs`(신규), `apps/api/src/dev.ts`(신규), `apps/api/src/lib/{processAlive,devSupervisor,listenWithRetry}.ts`(+테스트), `apps/api/src/main.ts`, `apps/api/package.json`(`dev`: `node scripts/dev.mjs`), `.claude/launch.json`(커밋 안 함)
+  - 원인(실험으로 확인): ① `tsx watch`는 표준 입력을 항상 읽는데(`process.stdin.on("data")`), 표준 입력이 파이프면 같은 핸들을 물려받은 서버 프로세스가 시작 중에 멈춤(표준 입력을 `NUL`로 막으면 정상, 터미널에선 재현 안 됨). ② 서버를 멈출 때 위쪽 프로세스만 종료되어 `tsx watch`와 서버가 남아 포트를 계속 잡음. ③ 이 PC에서 IPv4 listen이 간헐적으로 `EFAULT`(plain Node 20번 중 11번, .NET `TcpListener`도 20번 중 3번, IPv6 `::1`은 0번) → OS 쪽 문제로 보이며 원인 미확정. ④ listen 실패 뒤에도 `tsx watch`가 살아 있어서 오류가 묻히고 멈춘 것처럼 보였음. 시작에 5~30초가 걸리는데 그동안 출력이 없던 것도 원인
+  - 수정: 실행 스크립트가 표준 입력이 터미널이 아니면 넘기지 않음. 서버가 감시 프로세스·실행 스크립트 생존을 2초마다 확인. 포트 오류는 0.5초 간격 10회 재시도 후 종료 코드 3으로 끝내고 `tsx watch`도 종료. 시작/준비 로그 추가
+  - 검증: 미리보기(파이프 표준 입력)에서 4.1초 만에 시작, 미리보기 종료 시 2초 안에 프로세스 정리. 셸에서 3번 시작 모두 성공(1번은 `EFAULT` 재시도 3회 후 성공). 포트를 다른 프로세스가 잡고 있으면 약 13초 뒤 안내 메시지와 함께 종료, 남는 프로세스 없음
+- API와 구현이 나뉜 라이브러리 판정 추가
+  - 변경 파일: `packages/source-analyzer/src/usage/apiImplementations.ts`(신규, +테스트), `UsageMatcher.ts`, `assessFindingUsage.ts`(+테스트), `index.ts`, `packages/shared/src/types/source-usage.ts`(`ViaApiEvidence`, `FindingUsage.viaApi`), `packages/shared/src/api/usage.ts`, `packages/core/src/ScanOrchestrator.ts`, `apps/api/src/{dto/usage.dto,persistence/prisma/FindingRepository.prisma}.ts`, `apps/cli/src/render/text-report.ts`(+테스트), `apps/web/src/format/usage.ts`(+테스트), `apps/web/src/routes/VulnerabilityDetailPage.tsx`
+  - 내용: 구현 artifact를 소스가 직접 쓰지 않아도, 그것이 구현하는 API를 MAIN 소스가 쓰고 구현이 의존성에 있으면 `used`로 판정. 증거는 API 사용 위치이고, 경로(`viaApi.path`)와 근거 문서를 `usage_analysis` JSON에 저장(마이그레이션 없음). CLI `Used` 열 `via API`, 웹 상세 화면 "Used through"
+- 취약 API 목록 확대 (`vulnerableApis.ts`, +테스트): Log4Shell(CVE-2021-44228: 로깅 메서드), CVE-2021-45046/45105(ThreadContext/MDC 쓰기), snakeyaml 8건(`Yaml#load` 등), fastjson CVE-2017-18349(`JSON#parse`/`parseObject`), SpEL DoS 3건(`parseExpression`). 모두 OSV가 준 GHSA/CVE ID로 키를 걸고 권고 링크 기록
+  - java-sec-code 결과: 판정이 바뀐 finding 20건. used 122 → 130, vulnerable API used 0 → 10, no info 161 → 146. Log4Shell `not used` → `used via API, vulnerable API used`(증거 `Log4j.java:20/26` `logger.error`), snakeyaml `Rce.java:113/119`, fastjson `parseObject` 3곳. API+DB+웹 상세 화면까지 표시 확인
+  - 검증: typecheck / test 350개 / build / lint 통과
+
+### 미완료 (추가)
+
+- spring-expression은 `SpEL.java`에서 같은 변수 이름이 다른 타입으로 선언되어 `not detected`로 나옴(파일 단위 변수 타입 해석의 한계)
+- jackson-databind polymorphic typing 계열(60건) 취약 API 미추가
+- IPv4 listen `EFAULT`의 근본 원인(OS·보안 소프트웨어) 미확정. 미리보기 도구도 자체 포트 확인에서 같은 오류를 냄
+- 셸 작업을 강제로 끊어 `pnpm` 체인 전체가 남는 경우는 자동으로 감지할 수 없음(README에 정리 명령 기록)
+
 ### 다음 작업
 
 - Phase 5 — Spring 엔드포인트 분석

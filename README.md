@@ -82,7 +82,8 @@ CVE-2022-42889  org.apache.commons:commons-text@1.9  used, vulnerable API used
 
 - `scan`은 요약 블록과 취약점 표를 출력합니다. `report`는 요약, 의존성, 취약점, 미확정 의존성, 소스 사용 증거를 모두 담은 전체 텍스트 리포트를 출력하고, `--json`을 주면 JSON으로 출력합니다.
 - `Used`는 `src/main/java`에서 의존성 패키지를 쓰는 곳(import, 패키지 경로 참조, `new`, 메서드 호출)이 하나라도 있으면 `yes`입니다. `src/test/java` 사용은 증거로 남기되 `used` 판정에는 넣지 않습니다.
-- `Vuln API`는 `used` / `not detected` / `no info` 중 하나입니다. 정적 분석으로 호출을 못 찾았다고 안 쓴다고 단정하지 않기 때문에 `not used` 대신 `not detected`라고 씁니다. 취약 API 목록은 OSV에 함수 단위 정보가 없어 `packages/source-analyzer/src/usage/vulnerableApis.ts`에 직접 정리했고, 목록에 없는 취약점은 `no info`입니다.
+- `Vuln API`는 `used` / `not detected` / `no info` 중 하나입니다. 정적 분석으로 호출을 못 찾았다고 안 쓴다고 단정하지 않기 때문에 `not used` 대신 `not detected`라고 씁니다. 취약 API 목록은 OSV에 함수 단위 정보가 없어 `packages/source-analyzer/src/usage/vulnerableApis.ts`에 직접 정리했고(권고 ID와 출처 링크 포함), 목록에 없는 취약점은 `no info`입니다.
+- `Used`가 `via API`이면 소스가 그 의존성을 직접 쓰지는 않지만, 그 의존성이 구현하는 API를 씁니다. 예: `log4j-api`의 `Logger`를 호출하면 실제 코드는 `log4j-core`에서 실행됩니다. 이 경우 증거는 API 사용 위치이고, 어떤 artifact를 거쳤는지와 근거 문서가 함께 저장됩니다.
 - 버전을 부모 POM이 관리하는 의존성(예: `spring-boot-starter-web`)은 Maven 실행 없이는 버전을 알 수 없습니다. 이런 의존성은 숨기지 않고 `unresolved — not checked`로 따로 셉니다.
 - 취약점은 심각도와 CVSS 순으로 정렬됩니다. 정렬은 `packages/core`의 `compareFindings`가 맡으며, CLI와 API가 같은 함수를 씁니다.
 
@@ -168,8 +169,10 @@ clone한 저장소는 신뢰할 수 없는 입력으로 다룹니다.
 - 반환값 체인(`a().b()`)의 수신 타입, 상속받은 메서드, 리플렉션, `Type.FIELD.m()` 형태의 호출은 추적하지 않습니다. 그래서 취약 API가 `not detected`로 나올 수 있습니다.
 - `var`는 `var x = new T(...)`만 해석하고, 변수 이름은 파일 단위로 단순화해서 봅니다.
 - artifact → Java 패키지 매핑은 직접 정리한 매핑표가 우선이고, 없으면 `groupId`를 패키지 접두사로 추정합니다(결과에 `assumed from groupId`로 표시). 같은 groupId를 쓰는 다른 artifact와 구분하지 못할 수 있습니다.
-- 취약 API 목록은 직접 정리한 것이라 현재는 CVE-2022-42889(commons-text)만 들어 있습니다.
-- **API와 구현이 나뉜 라이브러리는 구현 artifact를 `not used`로 판정합니다.** 예를 들어 java-sec-code의 `Log4j.java`는 `log4j-api`의 `LogManager`로 `logger.error(token)`을 호출하지만(전형적인 Log4Shell 패턴), 취약한 `log4j-core`는 import하지 않아 `not used`로 나옵니다. slf4j/logback도 같은 구조입니다. 이 경우를 어떻게 표시할지는 아직 정하지 않았습니다.
+- 취약 API 목록은 직접 정리한 것으로, 현재 commons-text(Text4Shell), log4j-core(CVE-2021-44228/45046/45105), snakeyaml 8건, fastjson(CVE-2017-18349), spring-expression 3건(SpEL DoS)이 들어 있습니다. jackson-databind의 polymorphic typing 계열(java-sec-code에서 60건)은 CVE마다 조건이 달라 아직 넣지 않았습니다.
+- `vulnerable API used`는 취약한 코드 경로의 진입점을 호출한다는 뜻이지, 입력이 공격자 통제라거나 취약한 설정이 켜져 있다는 증명은 아닙니다. 예: `new Yaml(new SafeConstructor())`로 만든 `load`도 정적으로는 구분하지 못해 함께 표시됩니다.
+- 같은 이름의 변수가 한 파일 안에서 다른 타입으로 선언되면(예: java-sec-code `SpEL.java`의 `parser`가 `ExpressionParser`와 `SpelExpressionParser`) 모호하다고 보고 그 변수의 메서드 호출을 기록하지 않습니다. 그래서 spring-expression은 `not detected`로 나옵니다.
+- API → 구현 관계(`via API`)는 직접 정리한 로깅 라이브러리만 다룹니다: log4j-api → log4j-core, SLF4J → logback-classic, SLF4J → log4j-slf4j(2)-impl → log4j-api. `log4j-to-slf4j`가 함께 있으면 log4j-api 호출이 log4j-core로 간다고 단정할 수 없어 연결하지 않습니다. 전이 의존성까지 보려면 `--allow-maven`이 필요합니다.
 
 그 밖에:
 
@@ -256,6 +259,19 @@ pnpm format           # prettier --write .
 ```bash
 pnpm dev:api                          # tsx watch — http://127.0.0.1:${API_PORT} (기본 3000)
 curl http://127.0.0.1:3000/api/health # → {"status":"ok"}
+```
+
+`pnpm dev:api`는 `apps/api/scripts/dev.mjs`를 거쳐 `tsx watch src/dev.ts`를 실행합니다. 시작하자마자 `[API] starting…`을, 준비되면 `[API] ready in …s`를 출력합니다. 처음 실행하거나 캐시가 없으면 준비까지 10~30초 걸릴 수 있습니다.
+
+- IDE 작업 실행기나 도구처럼 표준 입력이 파이프인 환경에서는 `tsx watch`에 표준 입력을 넘기지 않습니다. Windows에서 `tsx watch`가 파이프 표준 입력을 읽고 있으면, 같은 핸들을 물려받은 서버 프로세스가 시작 중에 멈췄기 때문입니다. 터미널에서는 지금처럼 Enter로 재시작할 수 있습니다.
+- 실행 스크립트나 `tsx watch`가 강제 종료되면 서버도 2초 안에 스스로 종료됩니다. 남은 서버가 포트를 잡는 일을 막기 위해서입니다.
+- 포트를 열 수 없으면 0.5초 간격으로 10번 다시 시도합니다. 그래도 실패하면 원인을 출력하고 `tsx watch`까지 끝냅니다.
+- 이 PC에서는 Windows가 IPv4 listen을 간헐적으로 `EFAULT`로 거부하는 현상을 확인했습니다. Node가 아닌 .NET `TcpListener`에서도 재현되므로 OS나 보안·샌드박스 소프트웨어 쪽 문제로 보입니다. 재시도가 이 경우도 처리합니다.
+
+셸 작업을 강제로 끊어서 `pnpm` 체인 전체가 남은 경우에는 PowerShell에서 정리할 수 있습니다.
+
+```powershell
+Get-NetTCPConnection -LocalPort 3001 -State Listen | % { Get-CimInstance Win32_Process -Filter "ProcessId=$($_.OwningProcess)" } | select ProcessId, CommandLine
 ```
 
 API 서버는 시작할 때 루트의 `.env`를 읽습니다(`process.loadEnvFile`). 셸에서 설정한 환경 변수가 `.env`보다 우선합니다.
