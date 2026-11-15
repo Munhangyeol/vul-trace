@@ -29,6 +29,7 @@ export function assessFindingUsage(
 
   return {
     used: mainUsages.length > 0,
+    ...(dependencyUsage.viaApi ? { viaApi: dependencyUsage.viaApi } : {}),
     vulnerableApi:
       vulnerableApis.length === 0
         ? 'NO_API_INFO'

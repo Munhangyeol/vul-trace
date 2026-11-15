@@ -7,6 +7,7 @@ export type { JavaFileScanLimits, JavaFileScanResult } from './scanner/JavaFileS
 export { matchDependencyUsages } from './usage/UsageMatcher.js';
 export type { DependencyRef, DependencyUsage, MatchedUsage } from './usage/UsageMatcher.js';
 export { assessFindingUsage } from './usage/assessFindingUsage.js';
+export { applyApiImplementations } from './usage/apiImplementations.js';
 export { resolvePackageMapping } from './usage/artifactPackages.js';
 export { findVulnerableApis } from './usage/vulnerableApis.js';
 export type * from './types.js';

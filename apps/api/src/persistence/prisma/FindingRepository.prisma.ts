@@ -12,6 +12,7 @@ import type {
   SourceSet,
   SourceUsage,
   UsageKind,
+  ViaApiEvidence,
   VulnerabilityFinding,
   VulnerableApiRef,
   VulnerableApiStatus,
@@ -26,6 +27,8 @@ function isDependencySourceKind(value: string): value is DependencySource['kind'
 interface UsageAnalysisJson {
   packageMapping: PackageMapping;
   vulnerableApis: VulnerableApiRef[];
+  /** Present when `used` comes from an implemented API (log4j-api → log4j-core). */
+  viaApi?: ViaApiEvidence;
 }
 
 /** Phase 4 columns on project_vulnerabilities; all null when source usage was not analyzed. */
@@ -36,6 +39,7 @@ function usageColumns(usage: FindingUsage | undefined) {
   const analysis: UsageAnalysisJson = {
     packageMapping: usage.packageMapping,
     vulnerableApis: usage.vulnerableApis,
+    ...(usage.viaApi ? { viaApi: usage.viaApi } : {}),
   };
   return {
     used: usage.used,
@@ -281,6 +285,7 @@ function toFindingUsage(row: ProjectVulnerabilityRow, purl: string): FindingUsag
   const analysis = row.usageAnalysis as UsageAnalysisJson;
   return {
     used: row.used,
+    ...(analysis.viaApi ? { viaApi: analysis.viaApi } : {}),
     vulnerableApi: row.vulnerableApiStatus as VulnerableApiStatus,
     packageMapping: analysis.packageMapping,
     vulnerableApis: analysis.vulnerableApis,

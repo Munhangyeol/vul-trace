@@ -49,10 +49,29 @@ export interface VulnerableApiRef {
  */
 export type VulnerableApiStatus = 'USED' | 'NOT_DETECTED' | 'NO_API_INFO';
 
+/**
+ * Why a dependency the source never names directly still counts as used: the code calls an API
+ * artifact that this dependency implements (e.g. `log4j-api` calls run in `log4j-core`).
+ */
+export interface ViaApiEvidence {
+  /**
+   * purls from the artifact the source uses directly down to this dependency's immediate caller,
+   * e.g. `[log4j-api]`, or `[slf4j-api, log4j-slf4j-impl, log4j-api]` through an SLF4J binding.
+   */
+  path: string[];
+  /** The curated relation(s) that make the link, with the documentation they come from. */
+  reason: string;
+}
+
 /** Phase 4 conclusion for one finding, with the evidence it was derived from (CLAUDE.md §6.2). */
 export interface FindingUsage {
-  /** True when at least one MAIN source usage of the dependency was found. */
+  /**
+   * True when at least one MAIN source usage of the dependency was found — directly, or through
+   * an API it implements (`viaApi` is then set and `usages` are that API's usages).
+   */
   used: boolean;
+  /** Set only when `used` comes from an implemented API rather than the dependency's own packages. */
+  viaApi?: ViaApiEvidence;
   vulnerableApi: VulnerableApiStatus;
   packageMapping: PackageMapping;
   /** Vulnerable APIs that were checked; empty when `vulnerableApi` is `NO_API_INFO`. */

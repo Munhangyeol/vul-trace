@@ -4,7 +4,12 @@ import { formatFixedVersions } from './fixedVersions';
 import type { FindingUsageSummaryDto } from '@vulntrace/shared';
 import { formatSeverity } from './severity';
 import { formatCommitSha, formatProjectSource } from './source';
-import { formatPackageMappingBasis, formatUsed, formatVulnerableApi } from './usage';
+import {
+  formatPackageMappingBasis,
+  formatPurlName,
+  formatUsed,
+  formatVulnerableApi,
+} from './usage';
 
 describe('formatSeverity', () => {
   it('title-cases a severity value', () => {
@@ -91,3 +96,21 @@ describe('formatProjectSource / formatCommitSha', () => {
     expect(formatCommitSha(undefined)).toBe('—');
   });
 });
+
+describe('via-API usage display', () => {
+  it('labels a use through an implemented API and shortens purls', () => {
+    const summary = {
+      used: true,
+      viaApi: { path: ['pkg:maven/org.apache.logging.log4j/log4j-api@2.9.1'], reason: 'r' },
+      vulnerableApi: 'USED' as const,
+      packageMapping: { packages: ['org.apache.logging.log4j.core'], basis: 'CURATED' as const },
+      vulnerableApis: [],
+      mainUsageCount: 1,
+      testUsageCount: 0,
+    };
+    expect(formatUsed(summary)).toBe('Yes (via API)');
+    expect(formatPurlName('pkg:maven/org.apache.logging.log4j/log4j-api@2.9.1')).toBe('log4j-api@2.9.1');
+    expect(formatPurlName('not-a-purl')).toBe('not-a-purl');
+  });
+});
+

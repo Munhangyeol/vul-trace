@@ -59,7 +59,8 @@ const VULNERABLE_API_LABEL: Record<FindingUsage['vulnerableApi'], string> = {
 
 function usedLabel(finding: VulnerabilityFinding): string {
   if (!finding.usage) return '-';
-  return finding.usage.used ? 'yes' : 'no';
+  if (!finding.usage.used) return 'no';
+  return finding.usage.viaApi ? 'via API' : 'yes';
 }
 
 function vulnerableApiLabel(finding: VulnerabilityFinding): string {
@@ -190,12 +191,15 @@ export function renderSourceUsage(report: ScanReport): string {
   for (const finding of [...report.findings].sort(compareFindings)) {
     const usage = finding.usage;
     if (!usage) continue;
-    const verdict = usage.used ? 'used' : 'not used';
+    const verdict = !usage.used ? 'not used' : usage.viaApi ? 'used via API' : 'used';
     lines.push(
       '',
       `${pickDisplayId(finding.vulnerability)}  ${finding.package.name}@${finding.package.version}  ${verdict}, vulnerable API ${VULNERABLE_API_LABEL[usage.vulnerableApi]}`,
       `  packages: ${usage.packageMapping.packages.join(', ')} (${usage.packageMapping.basis === 'CURATED' ? 'curated mapping' : 'assumed from groupId'})`,
     );
+    if (usage.viaApi) {
+      lines.push(`  used through: ${usage.viaApi.path.join(' -> ')} (${usage.viaApi.reason})`);
+    }
     if (usage.vulnerableApis.length > 0) {
       const apis = usage.vulnerableApis.map((api) => (api.method ? `${api.type}#${api.method}` : api.type));
       lines.push(`  vulnerable APIs checked: ${apis.join(', ')}`);

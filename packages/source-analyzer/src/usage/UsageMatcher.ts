@@ -1,4 +1,10 @@
-import type { PackageMapping, SourceLocation, SourceUsage, UsageKind } from '@vulntrace/shared';
+import type {
+  PackageMapping,
+  SourceLocation,
+  SourceUsage,
+  UsageKind,
+  ViaApiEvidence,
+} from '@vulntrace/shared';
 import type { AnalyzedJavaFile, JavaAnalysisResult } from '../types.js';
 import { resolvePackageMapping } from './artifactPackages.js';
 
@@ -16,6 +22,8 @@ export interface DependencyUsage {
   packageMapping: PackageMapping;
   /** Ordered by file, line, column. */
   usages: MatchedUsage[];
+  /** Set by applyApiImplementations when the usages belong to an API this dependency implements. */
+  viaApi?: ViaApiEvidence;
 }
 
 const MAX_SNIPPET_LENGTH = 200;

@@ -300,3 +300,30 @@ describe('renderSummary for GitHub repository scans', () => {
     );
   });
 });
+
+describe('findings used through an implemented API', () => {
+  const viaApi = {
+    path: ['pkg:maven/org.apache.logging.log4j/log4j-api@2.9.1'],
+    reason: 'log4j-core implements log4j-api',
+  };
+  const report: ScanReport = {
+    ...baseReport,
+    stages: baseReport.stages.map((s) =>
+      s.stage === 'SOURCE_USAGE' ? { stage: 'SOURCE_USAGE', status: 'SUCCEEDED' } : s,
+    ),
+    sourceAnalysis: { mainFiles: 1, testFiles: 0, skippedFiles: [], usedDependencies: 1 },
+    findings: [{ ...finding, usage: { ...usedUsage, viaApi } }],
+  };
+
+  it('marks the Used column "via API"', () => {
+    expect(renderVulnerabilityTable(report)).toMatch(/via API/);
+  });
+
+  it('prints the chain in the source usage section', () => {
+    const text = renderSourceUsage(report);
+    expect(text).toContain('used via API');
+    expect(text).toContain(
+      'used through: pkg:maven/org.apache.logging.log4j/log4j-api@2.9.1 (log4j-core implements log4j-api)',
+    );
+  });
+});

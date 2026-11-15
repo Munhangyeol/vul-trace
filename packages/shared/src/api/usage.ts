@@ -2,6 +2,7 @@ import type {
   PackageMapping,
   SourceSet,
   UsageKind,
+  ViaApiEvidence,
   VulnerableApiRef,
   VulnerableApiStatus,
 } from '../types/source-usage.js';
@@ -9,6 +10,8 @@ import type {
 /** Phase 4 conclusion for a finding, without the evidence rows (see `FindingUsagesDto`). */
 export interface FindingUsageSummaryDto {
   used: boolean;
+  /** Set when `used` comes from an API this dependency implements; usages are then that API's. */
+  viaApi?: ViaApiEvidence;
   vulnerableApi: VulnerableApiStatus;
   packageMapping: PackageMapping;
   vulnerableApis: VulnerableApiRef[];

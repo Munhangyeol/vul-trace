@@ -7,6 +7,7 @@ export function toFindingUsageSummaryDto(usage: FindingUsage | undefined): Findi
   if (!usage) return null;
   return {
     used: usage.used,
+    ...(usage.viaApi ? { viaApi: usage.viaApi } : {}),
     vulnerableApi: usage.vulnerableApi,
     packageMapping: usage.packageMapping,
     vulnerableApis: usage.vulnerableApis,

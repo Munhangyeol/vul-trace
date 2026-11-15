@@ -15,7 +15,11 @@ import type {
 } from '@vulntrace/dependency-analyzer';
 import type { CycloneDxBom, SbomBuilder } from '@vulntrace/sbom';
 import type { VulnerabilityProvider } from '@vulntrace/vulnerability';
-import { assessFindingUsage, matchDependencyUsages } from '@vulntrace/source-analyzer';
+import {
+  applyApiImplementations,
+  assessFindingUsage,
+  matchDependencyUsages,
+} from '@vulntrace/source-analyzer';
 import type { JavaSourceAnalyzer, SkippedJavaFile } from '@vulntrace/source-analyzer';
 import type { ScanLogger } from './logging/ScanLogger.js';
 
@@ -310,13 +314,15 @@ export class ScanOrchestrator {
     if (!analysis.ok) return failed(`${analysis.error.code}: ${analysis.error.message}`);
 
     const { files, skippedFiles, warnings } = analysis.value;
-    const dependencyUsages = matchDependencyUsages(
-      analysis.value,
-      dependencies.map(({ coordinate }) => ({
-        groupId: coordinate.groupId,
-        artifactId: coordinate.artifactId,
-        purl: coordinate.purl,
-      })),
+    const dependencyRefs = dependencies.map(({ coordinate }) => ({
+      groupId: coordinate.groupId,
+      artifactId: coordinate.artifactId,
+      purl: coordinate.purl,
+    }));
+    // Implementations used only through their API (log4j-api → log4j-core) count as used too.
+    const dependencyUsages = applyApiImplementations(
+      matchDependencyUsages(analysis.value, dependencyRefs),
+      dependencyRefs,
     );
     const usageByPurl = new Map(dependencyUsages.map((u) => [u.purl, u]));
 

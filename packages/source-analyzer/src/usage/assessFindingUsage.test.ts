@@ -84,3 +84,24 @@ describe('assessFindingUsage', () => {
     expect(result.usages[0]?.vulnerableApi).toBe(true);
   });
 });
+
+describe('assessFindingUsage through an implemented API', () => {
+  it('Log4Shell: log4j-core used via log4j-api logging call → vulnerable API used', () => {
+    const viaApi = { path: ['pkg:maven/org.apache.logging.log4j/log4j-api@2.9.1'], reason: 'log4j-core implements log4j-api' };
+    const result = assessFindingUsage(finding('GHSA-jfh8-c2jp-5v3q', ['CVE-2021-44228']), {
+      ...dependencyUsage([usage('METHOD_CALL', 'org.apache.logging.log4j.Logger#error')]),
+      viaApi,
+    });
+    expect(result).toMatchObject({ used: true, vulnerableApi: 'USED', viaApi });
+    expect(result.usages[0]?.vulnerableApi).toBe(true);
+  });
+
+  it('a direct use carries no viaApi', () => {
+    const result = assessFindingUsage(
+      finding('GHSA-599f-7c49-w659', ['CVE-2022-42889']),
+      dependencyUsage([usage('IMPORT', 'org.apache.commons.text.StringSubstitutor')]),
+    );
+    expect(result.viaApi).toBeUndefined();
+  });
+});
+
