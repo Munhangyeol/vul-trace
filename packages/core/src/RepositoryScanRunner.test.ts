@@ -28,6 +28,7 @@ function reportFor(projectPath: string): ScanReport {
       { stage: 'DEPENDENCY_TREE', status: 'SKIPPED', reason: `maven disabled for ${projectPath}` },
     ],
     project: { groupId: 'g', artifactId: 'a', version: '1', pomPath },
+    endpoints: [],
     dependencies: [
       {
         coordinate: {

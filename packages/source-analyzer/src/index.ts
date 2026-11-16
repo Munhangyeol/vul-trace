@@ -2,6 +2,8 @@ export { LightweightJavaSourceAnalyzer } from './JavaSourceAnalyzer.js';
 export type { JavaSourceAnalyzer, LightweightJavaSourceAnalyzerOptions } from './JavaSourceAnalyzer.js';
 export type { JavaSourceParser } from './parser/JavaSourceParser.js';
 export { LightweightJavaParser } from './parser/LightweightJavaParser.js';
+export { tokenizeJava } from './parser/JavaTokenizer.js';
+export type { JavaToken, JavaTokenKind } from './parser/JavaTokenizer.js';
 export { scanJavaFiles, classifySourceSet } from './scanner/JavaFileScanner.js';
 export type { JavaFileScanLimits, JavaFileScanResult } from './scanner/JavaFileScanner.js';
 export { matchDependencyUsages } from './usage/UsageMatcher.js';

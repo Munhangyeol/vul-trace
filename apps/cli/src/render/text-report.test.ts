@@ -3,6 +3,7 @@ import type { ScanReport } from '@vulntrace/core';
 import type { FindingUsage, VulnerabilityFinding } from '@vulntrace/shared';
 import {
   renderDependencies,
+  renderEndpoints,
   renderSourceUsage,
   renderSummary,
   renderVulnerabilities,
@@ -25,6 +26,7 @@ const baseReport: ScanReport = {
     { stage: 'REACHABILITY', status: 'SKIPPED', reason: 'not implemented (Phase 6)' },
     { stage: 'RISK', status: 'SKIPPED', reason: 'not implemented (Phase 7)' },
   ],
+  endpoints: [],
   dependencies: [
     {
       coordinate: {
@@ -131,6 +133,7 @@ describe('renderSummary', () => {
         'Critical:          1',
         'High:              0',
         'Used by source:    unavailable (SKIPPED — not implemented (Phase 4))',
+        'Endpoints:         unavailable (SKIPPED — not implemented (Phase 5))',
       ].join('\n'),
     );
   });
@@ -324,6 +327,59 @@ describe('findings used through an implemented API', () => {
     expect(text).toContain('used via API');
     expect(text).toContain(
       'used through: pkg:maven/org.apache.logging.log4j/log4j-api@2.9.1 (log4j-core implements log4j-api)',
+    );
+  });
+});
+
+describe('renderEndpoints', () => {
+  const springReport: ScanReport = {
+    ...baseReport,
+    stages: baseReport.stages.map((s) =>
+      s.stage === 'SPRING_ENDPOINT' ? { stage: s.stage, status: 'SUCCEEDED' } : s,
+    ),
+    endpoints: [
+      {
+        httpMethod: 'POST',
+        path: '/api/templates/render',
+        controllerClass: 'com.example.demo.TemplateController',
+        controllerMethod: 'render',
+        location: { filePath: 'src/main/java/com/example/demo/TemplateController.java', line: 19 },
+        unresolved: [],
+        evidence: {
+          controller: { annotation: '@RestController', location: { filePath: 'T.java', line: 8 } },
+          methodMapping: { annotation: '@PostMapping("/render")', location: { filePath: 'T.java', line: 18 } },
+        },
+      },
+      {
+        httpMethod: 'ANY',
+        path: '/${Paths.USERS}',
+        controllerClass: 'com.example.demo.UserController',
+        controllerMethod: 'all',
+        location: { filePath: 'src/main/java/com/example/demo/UserController.java', line: 7 },
+        unresolved: ['Paths.USERS'],
+        evidence: {
+          controller: { annotation: '@Controller', location: { filePath: 'U.java', line: 3 } },
+          methodMapping: { annotation: '@RequestMapping(Paths.USERS)', location: { filePath: 'U.java', line: 6 } },
+        },
+      },
+    ],
+  };
+
+  it('lists each endpoint with its handler and notes unresolved parts', () => {
+    expect(renderEndpoints(springReport)).toBe(
+      [
+        'Spring endpoints: 2',
+        '  POST  /api/templates/render  com.example.demo.TemplateController#render  src/main/java/com/example/demo/TemplateController.java:19',
+        '  ANY   /${Paths.USERS}        com.example.demo.UserController#all         src/main/java/com/example/demo/UserController.java:7',
+        '    unresolved: Paths.USERS',
+      ].join('\n'),
+    );
+    expect(renderSummary(springReport)).toContain('Endpoints:         2');
+  });
+
+  it('says unavailable, not 0, when the stage did not run', () => {
+    expect(renderEndpoints(baseReport)).toBe(
+      'Spring endpoints: unavailable (SKIPPED — not implemented (Phase 5))',
     );
   });
 });

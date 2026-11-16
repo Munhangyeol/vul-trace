@@ -24,13 +24,13 @@ React Dashboard / CLI Report
 
 전체 제품 스펙, 아키텍처 규칙, 개발 단계는 [`CLAUDE.md`](./CLAUDE.md)(또는 [`CLAUDE_KR.md`](./CLAUDE_KR.md))를, 이 리포지토리가 만들어진 스캐폴딩 계획은 [`.claude/docs/init_plan.md`](./.claude/docs/init_plan.md)를 참고하세요.
 
-> **현재 상태: Phase 4까지 구현 완료 (MVP 1 달성) + GitHub 저장소 입력** — Phase 1(Maven 의존성 분석), Phase 2(SBOM + OSV 취약점 매칭), Phase 3(CLI 리포트 + React 대시보드, DB 연동), Phase 4(Java 소스 사용 분석)가 구현되어 있고, 로컬 경로뿐 아니라 공개 GitHub 저장소 URL로도 스캔할 수 있습니다. Spring 엔드포인트/도달 가능성 분석, 위험도 산정(Phase 5~7)은 아직 스텁(`NotImplementedError`) 상태이며, 대시보드의 Reachable/Risk Score 열은 그 Phase들이 끝나기 전까지 값을 지어내지 않고 `—`로 표시됩니다. 실제 동작 예시는 아래 [현재 구현 상태](#현재-구현-상태-phase-4까지)를 참고하세요.
+> **현재 상태: Phase 5까지 구현 완료 (MVP 1 달성) + GitHub 저장소 입력** — Phase 1(Maven 의존성 분석), Phase 2(SBOM + OSV 취약점 매칭), Phase 3(CLI 리포트 + React 대시보드, DB 연동), Phase 4(Java 소스 사용 분석), Phase 5(Spring 엔드포인트 분석)가 구현되어 있고, 로컬 경로뿐 아니라 공개 GitHub 저장소 URL로도 스캔할 수 있습니다. 도달 가능성 분석과 위험도 산정(Phase 6~7)은 아직 스텁(`NotImplementedError`) 상태이며, 대시보드의 Reachable/Risk Score 열은 그 Phase들이 끝나기 전까지 값을 지어내지 않고 `—`로 표시됩니다. 실제 동작 예시는 아래 [현재 구현 상태](#현재-구현-상태-phase-5까지)를 참고하세요.
 >
 > **OSV 조회와 네트워크 전송**: `vulntrace vulnerabilities`/`scan`(기본 동작) 또는 API의 `POST /api/projects/:id/scans`(`checkVulnerabilities` 기본값 `true`)는 확정된 의존성의 패키지 좌표(`groupId:artifactId@version`, purl)를 `https://api.osv.dev`로 전송해 취약점을 조회합니다. 소스 코드나 파일 내용은 전송하지 않습니다. CLI에서는 `--skip-vulnerabilities`로, API에서는 `checkVulnerabilities: false`로 끌 수 있습니다.
 
 ---
 
-## 현재 구현 상태 (Phase 4까지)
+## 현재 구현 상태 (Phase 5까지)
 
 | Phase | 내용 | 상태 |
 |---|---|---|
@@ -40,7 +40,8 @@ React Dashboard / CLI Report
 | 3 | CLI 리포트 + React 대시보드 (PostgreSQL 연동) | ✅ 완료 |
 | 4 | Java 소스 사용 분석 (import / 객체 생성 / 메서드 호출 증거, 취약 API 사용 여부) | ✅ 완료 — MVP 1 |
 | (MVP 1 이후) | GitHub 저장소 입력 (공개 저장소 URL → 얕은 clone → 분석 → 삭제, commit SHA 기록) | ✅ 완료 |
-| 5~8 | Spring 엔드포인트 / 도달 가능성 / 위험도 / 조치 안내 | 미착수 |
+| 5 | Spring 엔드포인트 분석 (`@RestController`/`@Controller` + `@*Mapping` → HTTP 메서드, 경로, 컨트롤러 메서드, 어노테이션 증거) | ✅ 완료 |
+| 6~8 | 도달 가능성 / 위험도 / 조치 안내 | 미착수 |
 
 아래 결과는 `fixtures/spring-vulnerable-used`를 실제로 스캔해서 얻은 것입니다(2026-10-17, 실제 OSV 조회, `--allow-maven` 없이 실행). OSV 데이터는 계속 갱신되므로 취약점 개수는 실행 시점에 따라 달라질 수 있습니다. 픽스처의 기준 취약점인 `commons-text 1.9` → CVE-2022-42889(Critical, fixed `1.10.0`)는 항상 검출되어야 합니다.
 
@@ -80,7 +81,20 @@ CVE-2022-42889  org.apache.commons:commons-text@1.9  used, vulnerable API used
 ...
 ```
 
-- `scan`은 요약 블록과 취약점 표를 출력합니다. `report`는 요약, 의존성, 취약점, 미확정 의존성, 소스 사용 증거를 모두 담은 전체 텍스트 리포트를 출력하고, `--json`을 주면 JSON으로 출력합니다.
+`endpoints`는 소스에서 찾은 Spring 엔드포인트를 출력합니다(Maven·OSV를 쓰지 않음). `scan` 요약에는 `Endpoints:` 개수가, `report` 끝에는 같은 목록이 붙습니다.
+
+```text
+$ node apps/cli/dist/index.js endpoints fixtures/spring-vulnerable-reachable
+...
+[SPRING] 2 endpoints discovered in 2 controllers
+Spring endpoints: 2
+  GET   /api/hello             com.example.demo.HelloController#hello      src/main/java/com/example/demo/HelloController.java:10
+  POST  /api/templates/render  com.example.demo.TemplateController#render  src/main/java/com/example/demo/TemplateController.java:19
+```
+
+- `scan`은 요약 블록과 취약점 표를 출력합니다. `report`는 요약, 의존성, 취약점, 미확정 의존성, 소스 사용 증거, Spring 엔드포인트를 모두 담은 전체 텍스트 리포트를 출력하고, `--json`을 주면 JSON으로 출력합니다.
+- 엔드포인트는 클래스 수준 `@RequestMapping` 경로와 메서드 수준 경로를 합친 값입니다. `@RequestMapping`에 `method`가 없으면 모든 HTTP 메서드를 받으므로 `ANY`로 표시합니다. 경로나 메서드가 문자열 리터럴이 아니라 상수 같은 식이면 값을 추측하지 않고 `${ApiPaths.USERS}`처럼 식 그대로 두고 `unresolved:`에 적습니다.
+- 엔드포인트마다 근거로 컨트롤러 어노테이션, 클래스 매핑, 메서드 매핑의 원문과 위치(파일:라인)를 저장합니다. Phase 6 도달 가능성 분석은 이 엔드포인트의 핸들러 메서드에서 출발합니다.
 - `Used`는 `src/main/java`에서 의존성 패키지를 쓰는 곳(import, 패키지 경로 참조, `new`, 메서드 호출)이 하나라도 있으면 `yes`입니다. `src/test/java` 사용은 증거로 남기되 `used` 판정에는 넣지 않습니다.
 - `Vuln API`는 `used` / `not detected` / `no info` 중 하나입니다. 정적 분석으로 호출을 못 찾았다고 안 쓴다고 단정하지 않기 때문에 `not used` 대신 `not detected`라고 씁니다. 취약 API 목록은 OSV에 함수 단위 정보가 없어 `packages/source-analyzer/src/usage/vulnerableApis.ts`에 직접 정리했고(권고 ID와 출처 링크 포함), 목록에 없는 취약점은 `no info`입니다.
 - `Used`가 `via API`이면 소스가 그 의존성을 직접 쓰지는 않지만, 그 의존성이 구현하는 API를 씁니다. 예: `log4j-api`의 `Logger`를 호출하면 실제 코드는 `log4j-core`에서 실행됩니다. 이 경우 증거는 API 사용 위치이고, 어떤 artifact를 거쳤는지와 근거 문서가 함께 저장됩니다.
@@ -93,7 +107,9 @@ CVE-2022-42889  org.apache.commons:commons-text@1.9  used, vulnerable API used
 
 ![Project List](./.claude/resources/web-project-list.jpg)
 
-**Project Dashboard**: 웹에서 "Run scan"을 누르면 API가 CLI와 같은 `ScanOrchestrator`로 스캔하고 결과를 PostgreSQL에 저장합니다. 화면에는 Dependencies / Vulnerabilities / Critical / High 집계, 단계별 상태(PROJECT_DETECTION → … → RISK)와 SKIPPED/FAILED 사유, vulnerability coverage, 미확정 의존성 목록이 나옵니다. Used Vulnerabilities는 소스에서 사용하는 취약점 수이고(소스 분석 전 스캔이면 `—`), Reachable은 Phase 6 전까지 `—`로 표시됩니다.
+**Project Dashboard**: 웹에서 "Run scan"을 누르면 API가 CLI와 같은 `ScanOrchestrator`로 스캔하고 결과를 PostgreSQL에 저장합니다. 화면에는 Dependencies / Vulnerabilities / Critical / High 집계, 단계별 상태(PROJECT_DETECTION → … → RISK)와 SKIPPED/FAILED 사유, vulnerability coverage, 미확정 의존성 목록이 나옵니다. Used Vulnerabilities는 소스에서 사용하는 취약점 수이고(소스 분석 전 스캔이면 `—`), Spring Endpoints는 찾은 엔드포인트 수입니다(SPRING_ENDPOINT 단계가 실행되지 않았으면 `0`이 아니라 `—`). Reachable은 Phase 6 전까지 `—`로 표시됩니다.
+
+**Spring endpoints**: 대시보드의 "View endpoints →"로 들어가며, Method / Path / Controller / Handler / Source(파일:라인) / Mapping(클래스·메서드 어노테이션 원문) 열을 보여 줍니다. 데이터는 `GET /api/projects/:projectId/endpoints`에서 가져옵니다.
 
 ![Project Dashboard](./.claude/resources/web-dashboard.jpg)
 
@@ -127,6 +143,11 @@ CVE-2022-42889  org.apache.commons:commons-text@1.9  used, vulnerable API used
 | [spring-projects/spring-petclinic](https://github.com/spring-projects/spring-petclinic) (`500158f`) | 50 | 50개 모두 경고 없이 파싱. 다만 Spring starter 25개가 부모 POM 관리 버전이라 Maven 없이는 버전을 몰라 사용 판정은 검증 못 함 |
 
 java-sec-code에서 groupId로 패키지를 추정한 매핑이 틀린 경우가 나와 매핑표를 보강했습니다(`0ed1fa1`).
+
+Phase 5 엔드포인트 분석도 같은 저장소로 확인했습니다(2026-11-16, `vulntrace endpoints <GitHub URL>`).
+
+- **spring-petclinic**: 엔드포인트 17개. 소스의 메서드 수준 매핑 어노테이션 17개와 1:1로 맞고, 경로(`/owners/{ownerId}/pets/{petId}/edit` 등)와 GET/POST 구분이 실제 컨트롤러와 같습니다.
+- **java-sec-code**: 엔드포인트 133개(그중 `ANY` 37개, `unresolved` 0개). 메서드 수준 매핑 어노테이션 134곳을 하나씩 대조했을 때 엔드포인트가 없는 곳은 2곳이었고 둘 다 의도한 결과입니다. `ClassDataLoader`는 컨트롤러 어노테이션이 없어 Spring이 등록하지 않는 클래스이고, `Cors.vuls3`는 `@GetMapping("*")`와 `@RequestMapping("/vuln/crossOrigin")`가 함께 붙어 있어 Spring처럼 직접 붙은 `@RequestMapping`을 택했습니다(`ANY /cors/vuln/crossOrigin`). 이 경우를 처음에는 잘못 처리해서 이번 확인 중에 고쳤습니다.
 
 - 실제로 쓰는데 `not used`로 나오던 것: httpclient(`org.apache.http`), commons-httpclient, commons-net, jdom2(`org.jdom2`)
 - 안 쓰는데 `used`로 나오던 것: poi. 실제 import는 poi-ooxml의 `org.apache.poi.xssf`뿐
@@ -162,7 +183,7 @@ clone한 저장소는 신뢰할 수 없는 입력으로 다룹니다.
 - 받은 코드는 빌드하거나 실행하지 않습니다. 파일 5만 개 / 500 MiB를 넘으면 분석하지 않고 실패로 기록합니다. clone은 OS 임시 폴더에 만들고 스캔이 끝나면(실패해도) 지웁니다.
 - 분석한 commit SHA를 스캔 결과(`scan_jobs.commit_sha`)에 남기고, 의존성 증거 경로는 임시 폴더가 아니라 저장소 기준(`pom.xml`)으로 저장합니다.
 
-### 알려진 한계 (Phase 4 기준)
+### 알려진 한계 (Phase 5 기준)
 
 소스 사용 분석 (Stage A, TypeScript 경량 파서):
 
@@ -173,6 +194,15 @@ clone한 저장소는 신뢰할 수 없는 입력으로 다룹니다.
 - `vulnerable API used`는 취약한 코드 경로의 진입점을 호출한다는 뜻이지, 입력이 공격자 통제라거나 취약한 설정이 켜져 있다는 증명은 아닙니다. 예: `new Yaml(new SafeConstructor())`로 만든 `load`도 정적으로는 구분하지 못해 함께 표시됩니다.
 - 같은 이름의 변수가 한 파일 안에서 다른 타입으로 선언되면(예: java-sec-code `SpEL.java`의 `parser`가 `ExpressionParser`와 `SpelExpressionParser`) 모호하다고 보고 그 변수의 메서드 호출을 기록하지 않습니다. 그래서 spring-expression은 `not detected`로 나옵니다.
 - API → 구현 관계(`via API`)는 직접 정리한 로깅 라이브러리만 다룹니다: log4j-api → log4j-core, SLF4J → logback-classic, SLF4J → log4j-slf4j(2)-impl → log4j-api. `log4j-to-slf4j`가 함께 있으면 log4j-api 호출이 log4j-core로 간다고 단정할 수 없어 연결하지 않습니다. 전이 의존성까지 보려면 `--allow-maven`이 필요합니다.
+
+Spring 엔드포인트 분석 (Stage A, 어노테이션 기반):
+
+- 경로 값은 문자열 리터럴과 리터럴끼리의 `+` 연결만 계산합니다. 상수(`ApiPaths.USERS`)는 같은 파일에 있어도 풀지 않고 `unresolved`로 남깁니다.
+- `server.servlet.context-path`, `spring.mvc.servlet.path` 같은 설정 파일의 접두사는 경로에 붙이지 않습니다.
+- 인터페이스나 상위 클래스에 선언된 매핑(OpenAPI generator가 만든 `*Api` 인터페이스를 구현하는 컨트롤러 등), 사용자가 만든 합성 어노테이션(`@MyGetMapping`), 함수형 라우팅(`RouterFunction`), WebFlux 함수형 엔드포인트, Spring Data REST, Actuator 엔드포인트는 찾지 않습니다.
+- `@Controller` / `@RestController`가 없는 클래스의 매핑은 Spring 6 동작에 맞춰 엔드포인트로 보지 않습니다. Spring 5 이하에서 클래스 수준 `@RequestMapping`만으로 등록되던 핸들러는 놓칠 수 있습니다.
+- `params`, `headers`, `consumes`, `produces` 조건과 인증 요구 여부(`@PreAuthorize`, Spring Security 설정)는 아직 보지 않습니다.
+- 한 메서드에 매핑 어노테이션이 여러 개면 Spring처럼 직접 붙은 `@RequestMapping`을 우선하고, 경고를 남깁니다.
 
 그 밖에:
 
@@ -316,6 +346,7 @@ pnpm --filter @vulntrace/web build
 pnpm --filter @vulntrace/cli dev -- --help
 pnpm --filter @vulntrace/cli dev -- scan ./fixtures/spring-vulnerable-reachable
 pnpm --filter @vulntrace/cli dev -- vulnerabilities ./fixtures/spring-vulnerable-used
+pnpm --filter @vulntrace/cli dev -- endpoints ./fixtures/spring-vulnerable-reachable
 pnpm --filter @vulntrace/cli dev -- scan ./fixtures/spring-vulnerable-used --skip-vulnerabilities --sbom ./bom.json
 ```
 

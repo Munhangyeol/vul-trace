@@ -7,6 +7,7 @@ import {
   validateGitRef,
 } from '@vulntrace/core';
 import type {
+  ProjectEndpointsDto,
   ProjectListItemDto,
   ProjectSource,
   ProjectSourceType,
@@ -15,6 +16,7 @@ import type {
 } from '@vulntrace/shared';
 import type { Container } from '../container.js';
 import { toProjectDependencyDto } from '../dto/dependency.dto.js';
+import { toSpringEndpointDto } from '../dto/endpoint.dto.js';
 import { toProjectDto } from '../dto/project.dto.js';
 import { toVulnerabilityFindingDto } from '../dto/vulnerability.dto.js';
 import { isWithinScanRoot } from '../lib/scanRoot.js';
@@ -44,6 +46,11 @@ async function loadLatestScanSummary(
   });
 
   return { scan, summary };
+}
+
+/** "0 endpoints" is only a result when the stage ran; otherwise it is unknown. */
+function springStageSucceeded(scan: ScanJob): boolean {
+  return scan.stages.some((s) => s.stage === 'SPRING_ENDPOINT' && s.status === 'SUCCEEDED');
 }
 
 interface CreateProjectBody {
@@ -182,6 +189,11 @@ export function createProjectRoutes(container: Container): FastifyPluginAsync {
         }
 
         const loaded = await loadLatestScanSummary(container, project.id);
+        const endpointsAnalyzed = loaded ? springStageSucceeded(loaded.scan) : false;
+        const endpointCount =
+          loaded && endpointsAnalyzed
+            ? (await container.endpointRepository.listEndpoints(loaded.scan.id)).length
+            : null;
         const dto: ProjectSummaryDto = {
           project: toProjectDto(project),
           latestScan: loaded
@@ -197,6 +209,7 @@ export function createProjectRoutes(container: Container): FastifyPluginAsync {
                 findings: loaded.summary.findings,
                 bySeverity: loaded.summary.bySeverity,
                 usedVulnerabilities: loaded.summary.usedVulnerabilities,
+                endpoints: endpointCount,
                 coverage: loaded.summary.coverage,
                 unresolvedDependencies: loaded.scan.unresolvedDependencies,
               }
@@ -220,6 +233,34 @@ export function createProjectRoutes(container: Container): FastifyPluginAsync {
 
         const dependencies = await container.findingRepository.listDependencies(latestScan.id);
         return dependencies.map(toProjectDependencyDto);
+      },
+    );
+
+    app.get<{ Params: { projectId: string } }>(
+      '/projects/:projectId/endpoints',
+      async (request, reply) => {
+        const project = await container.projectRepository.findById(request.params.projectId);
+        if (!project) {
+          return reply.code(404).send({ error: 'NOT_FOUND', message: 'project not found' });
+        }
+
+        const scans = await container.scanRepository.listByProject(project.id);
+        const latestScan = scans[0];
+        if (!latestScan) {
+          const empty: ProjectEndpointsDto = { scanId: null, analyzed: false, endpoints: [] };
+          return empty;
+        }
+
+        const stage = latestScan.stages.find((s) => s.stage === 'SPRING_ENDPOINT');
+        const analyzed = springStageSucceeded(latestScan);
+        const endpoints = analyzed ? await container.endpointRepository.listEndpoints(latestScan.id) : [];
+        const dto: ProjectEndpointsDto = {
+          scanId: latestScan.id,
+          analyzed,
+          ...(stage ? { stage } : {}),
+          endpoints: endpoints.map(toSpringEndpointDto),
+        };
+        return dto;
       },
     );
 

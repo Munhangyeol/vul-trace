@@ -1,4 +1,5 @@
 import type {
+  EndpointRepository,
   FindingRepository,
   ProjectRepository,
   RepositoryScanRunner,
@@ -6,6 +7,7 @@ import type {
 } from '@vulntrace/core';
 import { createConsoleScanLogger, createRepositoryScanRunner } from '@vulntrace/core';
 import { createPrismaClient } from './persistence/prisma/client.js';
+import { PrismaEndpointRepository } from './persistence/prisma/EndpointRepository.prisma.js';
 import { PrismaFindingRepository } from './persistence/prisma/FindingRepository.prisma.js';
 import { PrismaProjectRepository } from './persistence/prisma/ProjectRepository.prisma.js';
 import { PrismaScanRepository } from './persistence/prisma/ScanRepository.prisma.js';
@@ -17,6 +19,7 @@ export interface Container {
   projectRepository: ProjectRepository;
   scanRepository: ScanRepository;
   findingRepository: FindingRepository;
+  endpointRepository: EndpointRepository;
   /** When set, project paths must resolve inside this directory (CLAUDE.md §4.2). */
   scanRoot?: string;
 }
@@ -29,6 +32,7 @@ export function createContainer(options: { scanRoot?: string } = {}): Container 
     projectRepository: new PrismaProjectRepository(prisma),
     scanRepository: new PrismaScanRepository(prisma),
     findingRepository: new PrismaFindingRepository(prisma),
+    endpointRepository: new PrismaEndpointRepository(prisma),
     scanRoot: options.scanRoot,
   };
 }

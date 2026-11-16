@@ -182,12 +182,19 @@ model SpringEndpoint {
   path             String
   controllerClass  String @map("controller_class")
   controllerMethod String @map("controller_method")
+  /// Handler method declaration.
   filePath         String @map("file_path")
   line             Int
+  column           Int?
+  /// string[] — annotation expressions that could not be evaluated statically.
+  unresolved       Json   @default("[]")
+  /// SpringEndpointEvidence — the controller / class / method annotations as written.
+  evidence         Json   @default("{}")
 
   scan              ScanJob            @relation(fields: [scanId], references: [id], onDelete: Cascade)
   reachabilityPaths ReachabilityPath[]
 
+  @@index([scanId])
   @@map("spring_endpoints")
 }
 

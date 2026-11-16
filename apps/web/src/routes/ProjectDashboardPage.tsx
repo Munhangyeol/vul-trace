@@ -6,6 +6,7 @@ import { formatCommitSha, formatProjectSource } from '../format/source';
 
 const NOT_ANALYZED_TITLE = 'Not analyzed yet — see CLAUDE.md Phase 6 (reachable)';
 const USAGE_NOT_ANALYZED_TITLE = 'Source usage was not analyzed for this scan';
+const ENDPOINTS_NOT_ANALYZED_TITLE = 'Spring endpoints were not analyzed for this scan';
 
 export function ProjectDashboardPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -73,6 +74,12 @@ export function ProjectDashboardPage() {
           </dd>
         </div>
         <div>
+          <dt>Spring Endpoints</dt>
+          <dd title={scan && scan.endpoints === null ? ENDPOINTS_NOT_ANALYZED_TITLE : undefined}>
+            {scan?.endpoints ?? '—'}
+          </dd>
+        </div>
+        <div>
           <dt>Reachable Vulnerabilities</dt>
           <dd title={NOT_ANALYZED_TITLE}>—</dd>
         </div>
@@ -133,9 +140,14 @@ export function ProjectDashboardPage() {
             </>
           )}
 
-          <Link to={`/projects/${projectId}/vulnerabilities`} className="link-button">
-            View vulnerabilities →
-          </Link>
+          <div className="actions">
+            <Link to={`/projects/${projectId}/vulnerabilities`} className="link-button">
+              View vulnerabilities →
+            </Link>
+            <Link to={`/projects/${projectId}/endpoints`} className="link-button">
+              View endpoints →
+            </Link>
+          </div>
         </>
       )}
     </section>

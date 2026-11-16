@@ -38,6 +38,7 @@ export function renderSummary(report: ScanReport): string {
       `${'Used by source:'.padEnd(SUMMARY_LABEL_WIDTH)}${
         summary.usedVulnerabilities ?? `unavailable (${stageNote(report, 'SOURCE_USAGE') ?? 'not analyzed'})`
       }`,
+      `${'Endpoints:'.padEnd(SUMMARY_LABEL_WIDTH)}${endpointCount(report)}`,
     );
 
     const vulnerabilityNote = stageNote(report, 'VULNERABILITY');
@@ -49,6 +50,12 @@ export function renderSummary(report: ScanReport): string {
   }
 
   return lines.join('\n');
+}
+
+/** "0" only when the SPRING_ENDPOINT stage actually ran; otherwise the count is unknown. */
+function endpointCount(report: ScanReport): string {
+  const note = stageNote(report, 'SPRING_ENDPOINT');
+  return note ? `unavailable (${note})` : String(report.endpoints.length);
 }
 
 const VULNERABLE_API_LABEL: Record<FindingUsage['vulnerableApi'], string> = {
@@ -214,5 +221,27 @@ export function renderSourceUsage(report: ScanReport): string {
     lines.push(...renderColumns(usageRows).map((l) => `  ${l}`));
   }
 
+  return lines.join('\n');
+}
+
+/** Phase 5 evidence: each HTTP entry point with the handler method and the annotations it came from. */
+export function renderEndpoints(report: ScanReport): string {
+  const note = stageNote(report, 'SPRING_ENDPOINT');
+  if (note) return `Spring endpoints: unavailable (${note})`;
+
+  const lines = [`Spring endpoints: ${report.endpoints.length}`];
+  if (report.endpoints.length === 0) return lines[0] as string;
+
+  const rows = report.endpoints.map((e) => [
+    e.httpMethod,
+    e.path,
+    `${e.controllerClass}#${e.controllerMethod}`,
+    `${e.location.filePath}:${e.location.line}`,
+  ]);
+  renderColumns(rows).forEach((line, i) => {
+    lines.push(`  ${line}`);
+    const unresolved = report.endpoints[i]?.unresolved ?? [];
+    if (unresolved.length > 0) lines.push(`    unresolved: ${unresolved.join(', ')}`);
+  });
   return lines.join('\n');
 }

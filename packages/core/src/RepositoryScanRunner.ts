@@ -181,6 +181,7 @@ export class RepositoryScanRunner {
       unresolvedDependencies: [],
       findings: [],
       vulnerabilityCoverage: { checked: 0, notChecked: 0, failed: 0 },
+      endpoints: [],
       warnings: [],
       source,
     };

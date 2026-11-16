@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import type {
+  EndpointRepository,
   FindingRepository,
   ProjectRepository,
   ScanRepository,
@@ -15,6 +16,7 @@ import type {
   ProjectDependency,
   ProjectSource,
   ScanJob,
+  SpringEndpoint,
   VulnerabilityFinding,
 } from '@vulntrace/shared';
 import type { Container } from './container.js';
@@ -93,6 +95,18 @@ class InMemoryFindingRepository implements FindingRepository {
   }
 }
 
+class InMemoryEndpointRepository implements EndpointRepository {
+  private readonly endpointsByScan = new Map<string, SpringEndpoint[]>();
+
+  async saveEndpoints(scanId: string, endpoints: SpringEndpoint[]): Promise<void> {
+    this.endpointsByScan.set(scanId, endpoints);
+  }
+
+  async listEndpoints(scanId: string): Promise<SpringEndpoint[]> {
+    return this.endpointsByScan.get(scanId) ?? [];
+  }
+}
+
 const FAKE_SHA = 'c'.repeat(40);
 
 /**
@@ -127,6 +141,7 @@ function testContainer(): Container {
     projectRepository: new InMemoryProjectRepository(),
     scanRepository: new InMemoryScanRepository(),
     findingRepository: new InMemoryFindingRepository(),
+    endpointRepository: new InMemoryEndpointRepository(),
   };
 }
 
@@ -384,6 +399,7 @@ describe('api server', () => {
         state: 'COMPLETED',
         dependencies: 3,
         vulnerabilities: 0,
+        endpoints: 1,
         unresolvedDependencies: expect.arrayContaining([expect.objectContaining({ artifactId: expect.any(String) })]),
       },
     });
@@ -587,6 +603,67 @@ describe('api server', () => {
     });
     const scan = scanRes.json() as { stages: Array<{ stage: string; status: string }> };
     expect(scan.stages).toContainEqual({ stage: 'SOURCE_USAGE', status: 'SUCCEEDED' });
+  });
+
+  it('a real scan stores Spring endpoints with evidence and serves them from GET /endpoints', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      payload: { name: 'endpoints', path: fixturePath('spring-vulnerable-reachable') },
+    });
+    const project = createRes.json() as { id: string };
+
+    const beforeRes = await app.inject({ method: 'GET', url: `/api/projects/${project.id}/endpoints` });
+    expect(beforeRes.statusCode).toBe(200);
+    expect(beforeRes.json()).toEqual({ scanId: null, analyzed: false, endpoints: [] });
+
+    const scanRes = await app.inject({
+      method: 'POST',
+      url: `/api/projects/${project.id}/scans`,
+      payload: { checkVulnerabilities: false },
+    });
+    const scan = scanRes.json() as { id: string; stages: Array<{ stage: string; status: string }> };
+    expect(scan.stages).toContainEqual({ stage: 'SPRING_ENDPOINT', status: 'SUCCEEDED' });
+
+    const res = await app.inject({ method: 'GET', url: `/api/projects/${project.id}/endpoints` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      scanId: scan.id,
+      analyzed: true,
+      stage: { stage: 'SPRING_ENDPOINT', status: 'SUCCEEDED' },
+      endpoints: [
+        expect.objectContaining({ httpMethod: 'GET', path: '/api/hello' }),
+        {
+          httpMethod: 'POST',
+          path: '/api/templates/render',
+          controllerClass: 'com.example.demo.TemplateController',
+          controllerMethod: 'render',
+          filePath: 'src/main/java/com/example/demo/TemplateController.java',
+          line: 19,
+          column: 19,
+          unresolved: [],
+          evidence: {
+            controller: {
+              annotation: '@RestController',
+              location: { filePath: 'src/main/java/com/example/demo/TemplateController.java', line: 8, column: 1 },
+            },
+            classMapping: {
+              annotation: '@RequestMapping("/api/templates")',
+              location: { filePath: 'src/main/java/com/example/demo/TemplateController.java', line: 9, column: 1 },
+            },
+            methodMapping: {
+              annotation: '@PostMapping("/render")',
+              location: { filePath: 'src/main/java/com/example/demo/TemplateController.java', line: 18, column: 5 },
+            },
+          },
+        },
+      ],
+    });
+  });
+
+  it('GET /api/projects/:projectId/endpoints returns 404 for an unknown project', async () => {
+    const res = await app.inject({ method: 'GET', url: `/api/projects/${randomUUID()}/endpoints` });
+    expect(res.statusCode).toBe(404);
   });
 
   it('POST /api/projects/:projectId/scans returns 404 for an unknown project', async () => {

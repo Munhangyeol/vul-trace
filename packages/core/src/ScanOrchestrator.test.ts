@@ -520,6 +520,93 @@ describe('ScanOrchestrator.run', () => {
         status: 'SKIPPED',
         reason: 'no dependency analysis result',
       });
+      expect(report.stages).toContainEqual({
+        stage: 'SPRING_ENDPOINT',
+        status: 'SKIPPED',
+        reason: 'Java source analysis not available',
+      });
+      expect(report.endpoints).toEqual([]);
+    });
+  });
+
+  describe('SPRING_ENDPOINT stage', () => {
+    const controllerAnalysis = (projectPath: string): JavaAnalysisResult => ({
+      projectPath,
+      files: [
+        {
+          ...new LightweightJavaParser().parse(
+            'src/main/java/demo/TemplateController.java',
+            [
+              'package demo;',
+              'import org.springframework.web.bind.annotation.*;',
+              '@RestController',
+              '@RequestMapping("/api/templates")',
+              'class TemplateController {',
+              '  @PostMapping("/render") String render(String t) { return t; }',
+              '}',
+            ].join('\n'),
+          ),
+          sourceSet: 'MAIN',
+        },
+      ],
+      skippedFiles: [],
+      warnings: [],
+    });
+
+    const orchestratorWith = (deps: Partial<ConstructorParameters<typeof ScanOrchestrator>[0]>) =>
+      new ScanOrchestrator({
+        dependencyAnalyzer: fakeAnalyzer(async () => ok(analysisResult())),
+        sbomBuilder: unusedSbomBuilder,
+        vulnerabilityProvider: unusedVulnerabilityProvider,
+        sourceAnalyzer: fakeSourceAnalyzer(async (p) => ok(controllerAnalysis(p))),
+        logger: silentScanLogger,
+        ...deps,
+      });
+
+    it('discovers endpoints from the parsed sources and records SUCCEEDED', async () => {
+      const report = await orchestratorWith({}).run('/project');
+
+      expect(report.state).toBe('COMPLETED');
+      expect(report.stages).toContainEqual({ stage: 'SPRING_ENDPOINT', status: 'SUCCEEDED' });
+      expect(report.endpoints.map((e) => [e.httpMethod, e.path, e.controllerClass, e.controllerMethod])).toEqual([
+        ['POST', '/api/templates/render', 'demo.TemplateController', 'render'],
+      ]);
+      expect(report.endpoints[0]?.location).toEqual({
+        filePath: 'src/main/java/demo/TemplateController.java',
+        line: 6,
+        column: 34,
+      });
+    });
+
+    it('is SKIPPED when source analysis failed', async () => {
+      const report = await orchestratorWith({
+        sourceAnalyzer: fakeSourceAnalyzer(async () => err(new AnalysisError('PROJECT_NOT_FOUND', 'gone'))),
+      }).run('/project');
+
+      expect(report.stages).toContainEqual({
+        stage: 'SPRING_ENDPOINT',
+        status: 'SKIPPED',
+        reason: 'Java source analysis not available',
+      });
+    });
+
+    it('records a thrown analyzer error as FAILED and keeps earlier results', async () => {
+      const report = await orchestratorWith({
+        springEndpointAnalyzer: {
+          analyze: () => {
+            throw new Error('boom');
+          },
+        },
+      }).run('/project');
+
+      expect(report.state).toBe('PARTIAL');
+      expect(report.stages).toContainEqual({
+        stage: 'SPRING_ENDPOINT',
+        status: 'FAILED',
+        reason: 'Spring endpoint analysis threw: boom',
+      });
+      expect(report.stages).toContainEqual({ stage: 'SOURCE_USAGE', status: 'SUCCEEDED' });
+      expect(report.endpoints).toEqual([]);
     });
   });
 });

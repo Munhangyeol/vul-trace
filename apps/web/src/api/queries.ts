@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   FindingUsagesDto,
   ProjectDto,
+  ProjectEndpointsDto,
   ProjectListItemDto,
   ProjectSummaryDto,
   ProjectVulnerabilitiesDto,
@@ -14,6 +15,7 @@ export const queryKeys = {
   projects: ['projects'] as const,
   projectSummary: (projectId: string) => ['projects', projectId, 'summary'] as const,
   vulnerabilities: (projectId: string) => ['projects', projectId, 'vulnerabilities'] as const,
+  endpoints: (projectId: string) => ['projects', projectId, 'endpoints'] as const,
   finding: (findingId: string) => ['findings', findingId] as const,
   findingUsages: (findingId: string) => ['findings', findingId, 'usages'] as const,
 };
@@ -37,6 +39,14 @@ export function useVulnerabilities(projectId: string) {
   return useQuery({
     queryKey: queryKeys.vulnerabilities(projectId),
     queryFn: () => apiGet<ProjectVulnerabilitiesDto>(`/projects/${projectId}/vulnerabilities`),
+    enabled: projectId.length > 0,
+  });
+}
+
+export function useEndpoints(projectId: string) {
+  return useQuery({
+    queryKey: queryKeys.endpoints(projectId),
+    queryFn: () => apiGet<ProjectEndpointsDto>(`/projects/${projectId}/endpoints`),
     enabled: projectId.length > 0,
   });
 }
@@ -86,6 +96,7 @@ export function useRunScan(projectId: string) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
       void queryClient.invalidateQueries({ queryKey: queryKeys.projectSummary(projectId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.vulnerabilities(projectId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.endpoints(projectId) });
     },
   });
 }

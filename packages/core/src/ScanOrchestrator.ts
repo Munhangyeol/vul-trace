@@ -4,6 +4,7 @@ import type {
   ScanStage,
   ScanStageResult,
   ScanState,
+  SpringEndpoint,
   UnresolvedDependency,
   VulnerabilityCoverage,
   VulnerabilityFinding,
@@ -20,7 +21,12 @@ import {
   assessFindingUsage,
   matchDependencyUsages,
 } from '@vulntrace/source-analyzer';
-import type { JavaSourceAnalyzer, SkippedJavaFile } from '@vulntrace/source-analyzer';
+import type {
+  JavaAnalysisResult,
+  JavaSourceAnalyzer,
+  SkippedJavaFile,
+} from '@vulntrace/source-analyzer';
+import { SpringEndpointAnalyzer } from '@vulntrace/spring-analyzer';
 import type { ScanLogger } from './logging/ScanLogger.js';
 
 export interface ScanOptions extends DependencyAnalysisOptions {
@@ -61,6 +67,8 @@ export interface ScanReport {
   findings: VulnerabilityFinding[];
   vulnerabilityCoverage: VulnerabilityCoverage;
   sourceAnalysis?: SourceAnalysisSummary;
+  /** Phase 5: empty unless the SPRING_ENDPOINT stage succeeded — check `stages` before reading "none". */
+  endpoints: SpringEndpoint[];
   warnings: string[];
 }
 
@@ -69,13 +77,14 @@ export interface ScanOrchestratorDeps {
   sbomBuilder: SbomBuilder;
   vulnerabilityProvider: VulnerabilityProvider;
   sourceAnalyzer: JavaSourceAnalyzer;
+  /** Defaults to the static Spring MVC annotation analyzer. */
+  springEndpointAnalyzer?: Pick<SpringEndpointAnalyzer, 'analyze'>;
   logger: ScanLogger;
   now?: () => Date;
 }
 
 /** Stages not wired into the pipeline yet, with the phase that introduces them. */
 const PENDING_STAGES: ReadonlyArray<readonly [ScanStage, string]> = [
-  ['SPRING_ENDPOINT', 'Phase 5'],
   ['REACHABILITY', 'Phase 6'],
   ['RISK', 'Phase 7'],
 ];
@@ -125,6 +134,8 @@ export class ScanOrchestrator {
     let findings: VulnerabilityFinding[] = [];
     const vulnerabilityCoverage: VulnerabilityCoverage = { checked: 0, notChecked: 0, failed: 0 };
     let sourceAnalysis: SourceAnalysisSummary | undefined;
+    let javaAnalysis: JavaAnalysisResult | undefined;
+    let endpoints: SpringEndpoint[] = [];
 
     logger.info('SCAN', `scan started: ${projectPath}`);
 
@@ -252,8 +263,18 @@ export class ScanOrchestrator {
       if (sourceUsage.stage.status === 'SUCCEEDED') {
         findings = sourceUsage.findings;
         sourceAnalysis = sourceUsage.summary;
+        javaAnalysis = sourceUsage.javaAnalysis;
         warnings.push(...sourceUsage.warnings);
       }
+    }
+
+    if (!javaAnalysis) {
+      stages.push({ stage: 'SPRING_ENDPOINT', status: 'SKIPPED', reason: 'Java source analysis not available' });
+    } else {
+      const spring = this.analyzeSpringEndpoints(javaAnalysis);
+      stages.push(spring.stage);
+      endpoints = spring.endpoints;
+      warnings.push(...spring.warnings);
     }
 
     for (const [stage, phase] of PENDING_STAGES) {
@@ -276,8 +297,36 @@ export class ScanOrchestrator {
       findings,
       vulnerabilityCoverage,
       sourceAnalysis,
+      endpoints,
       warnings,
     };
+  }
+
+  /**
+   * SPRING_ENDPOINT (Phase 5): HTTP entry points from controller annotations in the already
+   * parsed MAIN sources. A failure here keeps every earlier result (CLAUDE.md §19).
+   */
+  private analyzeSpringEndpoints(javaAnalysis: JavaAnalysisResult): {
+    stage: ScanStageResult;
+    endpoints: SpringEndpoint[];
+    warnings: string[];
+  } {
+    const { logger } = this.deps;
+    const analyzer = this.deps.springEndpointAnalyzer ?? new SpringEndpointAnalyzer();
+    try {
+      const { endpoints, warnings } = analyzer.analyze(javaAnalysis);
+      const controllers = new Set(endpoints.map((e) => e.controllerClass)).size;
+      const unresolved = endpoints.filter((e) => e.unresolved.length > 0).length;
+      logger.info(
+        'SPRING',
+        `${endpoints.length} endpoints discovered in ${controllers} controllers${unresolved > 0 ? `, ${unresolved} with unresolved parts` : ''}`,
+      );
+      return { stage: { stage: 'SPRING_ENDPOINT', status: 'SUCCEEDED' }, endpoints, warnings };
+    } catch (cause) {
+      const reason = `Spring endpoint analysis threw: ${cause instanceof Error ? cause.message : String(cause)}`;
+      logger.error('SPRING', reason);
+      return { stage: { stage: 'SPRING_ENDPOINT', status: 'FAILED', reason }, endpoints: [], warnings: [] };
+    }
   }
 
   /**
@@ -293,6 +342,7 @@ export class ScanOrchestrator {
     stage: ScanStageResult;
     findings: VulnerabilityFinding[];
     summary?: SourceAnalysisSummary;
+    javaAnalysis?: JavaAnalysisResult;
     warnings: string[];
   }> {
     const { logger } = this.deps;
@@ -351,6 +401,12 @@ export class ScanOrchestrator {
       `${usedFindings} of ${assessed.length} findings used, ${vulnerableApiFindings} with vulnerable API usage`,
     );
 
-    return { stage: { stage: 'SOURCE_USAGE', status: 'SUCCEEDED' }, findings: assessed, summary, warnings };
+    return {
+      stage: { stage: 'SOURCE_USAGE', status: 'SUCCEEDED' },
+      findings: assessed,
+      summary,
+      javaAnalysis: analysis.value,
+      warnings,
+    };
   }
 }
