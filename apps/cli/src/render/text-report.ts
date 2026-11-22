@@ -1,7 +1,8 @@
 import { basename } from 'node:path';
-import { compareFindings, pickDisplayId, summarizeScan } from '@vulntrace/core';
+import { compareFindings, pickDisplayId, planRemediation, summarizeScan } from '@vulntrace/core';
 import type { ScanReport } from '@vulntrace/core';
 import type {
+  DependencyRemediation,
   FindingUsage,
   ReachabilityStatus,
   ScanStage,
@@ -331,5 +332,48 @@ export function renderRisk(report: ScanReport): string {
       lines.push(`  ${weight.padStart(4)}  ${reason.description}${evidence}`);
     }
   }
+  return lines.join('\n');
+}
+
+const FIX_STATUS_LABEL: Record<DependencyRemediation['findings'][number]['status'], string> = {
+  FIXED: 'fixed',
+  STILL_AFFECTED: 'still affected',
+  NO_FIX: 'no fix published',
+  UNKNOWN: 'cannot evaluate',
+};
+
+/** Phase 8: one upgrade decision per vulnerable dependency, highest risk first. */
+export function renderFixPlan(report: ScanReport): string {
+  const note = stageNote(report, 'VULNERABILITY');
+  if (note && report.findings.length === 0) return `Fix plan: unavailable (${note})`;
+  const plan = planRemediation({ findings: report.findings.map((finding) => ({ finding })), dependencies: report.dependencies });
+  if (plan.length === 0) return 'Fix plan: no vulnerable dependencies';
+
+  const lines = [
+    `Fix plan: ${plan.length} ${plan.length === 1 ? 'dependency' : 'dependencies'}, ${report.findings.length} ${report.findings.length === 1 ? 'finding' : 'findings'}`,
+  ];
+  plan.forEach((item, index) => {
+    const { dependency } = item;
+    const target = item.recommendedVersion ? ` → ${item.recommendedVersion}` : '  (no fixed version)';
+    const where =
+      dependency.direct === undefined ? '' : dependency.direct ? `  (direct, ${dependency.declaredIn ?? 'pom.xml'})` : '  (transitive)';
+    const facts = [
+      `fixes ${item.fixedCount} of ${item.findings.length}`,
+      item.maxRiskScore !== undefined ? `highest risk ${item.maxRiskScore}` : undefined,
+      item.majorUpgrade ? 'MAJOR upgrade' : undefined,
+    ].filter((f): f is string => f !== undefined);
+    lines.push('', `${index + 1}. ${dependency.name}  ${dependency.currentVersion}${target}${where}`, `   ${facts.join('  ·  ')}`);
+    for (const action of item.actions) lines.push(`   ${action.kind}: ${action.description}`);
+    if (item.reachableEndpoints.length > 0) lines.push(`   reachable from: ${item.reachableEndpoints.join(', ')}`);
+    if (item.affectedMethods.length > 0) lines.push(`   affected methods: ${item.affectedMethods.join(', ')}`);
+    if (item.affectedFiles.length > 0) lines.push(`   affected files: ${item.affectedFiles.join(', ')}`);
+    for (const f of item.findings) {
+      const id = pickDisplayId({ id: f.vulnerabilityId, aliases: f.aliases } as Parameters<typeof pickDisplayId>[0]);
+      const risk = f.riskScore !== undefined ? `risk ${f.riskScore}` : 'risk -';
+      const fixes = f.fixedVersions.length > 0 ? `fixed in ${f.fixedVersions.join(', ')}` : 'no fixed version';
+      lines.push(`     ${id}  ${risk}  ${FIX_STATUS_LABEL[f.status]}  (${fixes})`);
+    }
+  });
+  lines.push('', `Basis: ${plan[0]?.basis ?? ''}`);
   return lines.join('\n');
 }

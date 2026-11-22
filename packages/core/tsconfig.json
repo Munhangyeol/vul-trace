@@ -15,6 +15,7 @@
     { "path": "../repository-source" },
     { "path": "../spring-analyzer" },
     { "path": "../reachability" },
-    { "path": "../risk" }
+    { "path": "../risk" },
+    { "path": "../remediation" }
   ]
 }

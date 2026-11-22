@@ -12,3 +12,9 @@ export type {
   FindingReachabilitySummaryDto,
   ReachabilityPathDto,
 } from './reachability.js';
+export type {
+  DependencyRemediationDto,
+  FindingFixStatusDto,
+  FindingRemediationDto,
+  ProjectRemediationDto,
+} from './remediation.js';

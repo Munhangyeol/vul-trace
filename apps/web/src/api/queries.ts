@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   FindingReachabilityDto,
+  FindingRemediationDto,
   FindingUsagesDto,
   ProjectDto,
   ProjectEndpointsDto,
   ProjectListItemDto,
+  ProjectRemediationDto,
   ProjectSummaryDto,
   ProjectVulnerabilitiesDto,
   ScanJobDto,
@@ -20,6 +22,8 @@ export const queryKeys = {
   finding: (findingId: string) => ['findings', findingId] as const,
   findingUsages: (findingId: string) => ['findings', findingId, 'usages'] as const,
   findingReachability: (findingId: string) => ['findings', findingId, 'reachability'] as const,
+  findingRemediation: (findingId: string) => ['findings', findingId, 'remediation'] as const,
+  remediation: (projectId: string) => ['projects', projectId, 'remediation'] as const,
 };
 
 export function useProjects() {
@@ -77,6 +81,22 @@ export function useFindingReachability(findingId: string) {
   });
 }
 
+export function useFindingRemediation(findingId: string) {
+  return useQuery({
+    queryKey: queryKeys.findingRemediation(findingId),
+    queryFn: () => apiGet<FindingRemediationDto>(`/findings/${findingId}/remediation`),
+    enabled: findingId.length > 0,
+  });
+}
+
+export function useRemediation(projectId: string) {
+  return useQuery({
+    queryKey: queryKeys.remediation(projectId),
+    queryFn: () => apiGet<ProjectRemediationDto>(`/projects/${projectId}/remediation`),
+    enabled: projectId.length > 0,
+  });
+}
+
 /** Mirrors POST /api/projects: a local folder, or a public GitHub repository (+ optional branch/tag). */
 export type CreateProjectInput =
   | { name: string; sourceType: 'LOCAL'; path: string }
@@ -106,6 +126,7 @@ export function useRunScan(projectId: string) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
       void queryClient.invalidateQueries({ queryKey: queryKeys.projectSummary(projectId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.vulnerabilities(projectId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.remediation(projectId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.endpoints(projectId) });
     },
   });

@@ -430,6 +430,29 @@ button:disabled {
   color: var(--sev-low-text);
 }
 
+/* Remediation (Phase 8) */
+
+.remediation h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: 0;
+}
+
+.remediation .upgrade {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.remediation .actions {
+  padding-left: var(--space-5);
+}
+
+tr.highlight td {
+  background: var(--sev-medium-bg);
+}
+
 /* Code */
 
 code,

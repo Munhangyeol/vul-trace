@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { createConsoleScanLogger, createRepositoryScanRunner } from '@vulntrace/core';
 import { registerDependenciesCommand } from './commands/dependencies.command.js';
 import { registerEndpointsCommand } from './commands/endpoints.command.js';
+import { registerFixPlanCommand } from './commands/fixPlan.command.js';
 import { registerReportCommand } from './commands/report.command.js';
 import { registerScanCommand } from './commands/scan.command.js';
 import { registerVulnerabilitiesCommand } from './commands/vulnerabilities.command.js';
@@ -20,6 +21,7 @@ registerDependenciesCommand(program, runner);
 registerVulnerabilitiesCommand(program, runner);
 registerEndpointsCommand(program, runner);
 registerReportCommand(program, runner);
+registerFixPlanCommand(program, runner);
 
 // `pnpm <script> -- <args>` forwards the separator literally; drop it.
 const args = process.argv.slice(2);

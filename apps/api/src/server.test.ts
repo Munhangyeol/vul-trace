@@ -77,7 +77,7 @@ class InMemoryFindingRepository implements FindingRepository {
 
   async saveFindings(scanId: string, findings: VulnerabilityFinding[]): Promise<void> {
     const stored = findings.map(
-      (finding, index): StoredFinding => ({ id: `${scanId}:${index}`, finding }),
+      (finding, index): StoredFinding => ({ id: `${scanId}:${index}`, scanId, finding }),
     );
     this.findingsByScan.set(scanId, stored);
     for (const s of stored) this.findingsById.set(s.id, s);
@@ -753,6 +753,63 @@ describe('api server', () => {
       rulesVersion: 'test',
       reasons: [{ factor: 'CVSS_SEVERITY', status: 'APPLIED', weight: 66, description: 'MEDIUM' }],
     });
+  });
+
+  it('plans remediation per dependency for the project and for one finding', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      payload: { name: 'fix-demo', path: fixturePath('spring-vulnerable-used') },
+    });
+    const project = createRes.json() as { id: string };
+    const scan: ScanJob = {
+      id: randomUUID(),
+      projectId: project.id,
+      state: 'COMPLETED',
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      stages: [],
+      unresolvedDependencies: [],
+      vulnerabilityCoverage: { checked: 1, notChecked: 0, failed: 0 },
+    };
+    await container.scanRepository.save(scan);
+    const purl = 'pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8';
+    const finding = (id: string, fixed: string, score: number): VulnerabilityFinding => ({
+      vulnerability: { id, aliases: [`CVE-${id}`], summary: id, severity: 'HIGH', severitySource: 'DATABASE_SPECIFIC', modified: '2024-01-01T00:00:00Z', references: [] },
+      package: { ecosystem: 'Maven', name: 'com.fasterxml.jackson.core:jackson-databind', version: '2.9.8', purl },
+      fixedVersions: [fixed],
+      evidence: {
+        provider: 'OSV',
+        queriedAt: '2026-11-22T00:00:00.000Z',
+        affectedRanges: [{ type: 'ECOSYSTEM', events: [{ introduced: '0' }, { fixed }] }],
+        affectedVersions: [],
+      },
+      risk: { score, reasons: [], rulesVersion: 'test' },
+    });
+    await container.findingRepository.saveFindings(scan.id, [finding('A', '2.9.10.4', 40), finding('B', '2.12.6.1', 50)]);
+
+    const res = await app.inject({ method: 'GET', url: `/api/projects/${project.id}/remediation` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      scanId: scan.id,
+      dependencies: [
+        {
+          dependency: { name: 'com.fasterxml.jackson.core:jackson-databind', currentVersion: '2.9.8' },
+          recommendedVersion: '2.12.6.1',
+          fixedCount: 2,
+          maxRiskScore: 50,
+          findings: [
+            { vulnerabilityId: 'B', displayId: 'CVE-B', status: 'FIXED' },
+            { vulnerabilityId: 'A', displayId: 'CVE-A', status: 'FIXED' },
+          ],
+        },
+      ],
+    });
+
+    const findingId = `${scan.id}:0`;
+    const one = await app.inject({ method: 'GET', url: `/api/findings/${findingId}/remediation` });
+    expect(one.json()).toMatchObject({ findingId, status: 'FIXED', remediation: { recommendedVersion: '2.12.6.1' } });
+    expect((await app.inject({ method: 'GET', url: '/api/findings/nope/remediation' })).statusCode).toBe(404);
   });
 
   it('GET /api/findings/:findingId/usages returns 404 for an unknown finding', async () => {

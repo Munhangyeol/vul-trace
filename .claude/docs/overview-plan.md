@@ -45,6 +45,7 @@ vulnerable API reachable→ 엔드포인트 → ... → 호출 위치 콜 경로
 | `packages/repository-source` | `RepositorySource` 인터페이스, `LocalPathSource`, `GitRepositorySource`(https://github.com만 허용, 얕은 clone, 서브모듈·LFS·심볼릭 링크·hook·자격 증명 끔, 크기 상한, commit SHA 기록), URL·ref 검증 |
 | `packages/spring-analyzer` | `SpringEndpointAnalyzer` — 어노테이션 인자 파싱(토크나이저 재사용), import 기반 Spring 어노테이션 판별, 클래스+메서드 경로 결합, HTTP 메서드 합집합/`ANY`, 계산 못 한 값은 `unresolved`, 어노테이션 원문·위치 증거 구현 완료 |
 | `packages/reachability` | `TypeIndex`(Java 이름 해석, 상·하위 타입), `CallGraphBuilder`(필드·매개변수·지역 변수·정적 호출·생성자, 인터페이스 → 프로젝트 구현 CHA, 오버로드 표시, 미해석 호출 기록), `ReachabilityAnalyzer`(엔드포인트별 BFS, 가장 짧은 경로, 단계별 호출 위치 증거, 분석 범위 표기) 구현 완료 (Phase 6) |
+| `packages/remediation` | `MavenVersion`(Maven 버전 비교), `isAffected`(OSV ECOSYSTEM 범위 평가), `planRemediation`(의존성별 권장 버전·조치·근거, 조회 시 계산) 구현 완료 (Phase 8) |
 | `packages/risk` | `rules.ts`(가중치 표, `RULES_VERSION`), `RiskScoreCalculator`(순수 함수, 요인별 근거, 근거 합계 = 점수, 0~100), `assessAuthentication`(Spring Security 의존성·접근 어노테이션) 구현 완료 (Phase 7) |
 | `packages/core` | `RepositoryScanRunner`가 저장소 가져오기(`REPOSITORY_FETCH`, GIT만) → `ScanOrchestrator` → 임시 폴더 삭제를 묶고, clone 경로를 저장소 기준 상대 경로로 바꿈. `ScanOrchestrator`가 PROJECT_DETECTION → DEPENDENCY → DEPENDENCY_TREE → SBOM → VULNERABILITY → SOURCE_USAGE → SPRING_ENDPOINT까지 연결 (`[SOURCE]`/`[SPRING]` 로그, 실패 시 PARTIAL). `summarizeScan`(`usedVulnerabilities` 포함)/`compareFindings`/`pickDisplayId`를 CLI·API 공용 집계·정렬 로직으로 추가 |
 | `apps/cli` | `scan`(요약+취약점 표)/`report`(요약+의존성+취약점+미확정, `--json` 지원, 소스 사용 증거 섹션)/`dependencies`/`vulnerabilities` 구현 완료. `endpoints` 명령과 요약의 `Endpoints:` 줄 추가(Phase 5). 취약점 표에 `Used`/`Vuln API` 열 (`--allow-maven`, `--skip-vulnerabilities`, `--sbom`). 모든 명령이 로컬 경로 또는 GitHub URL(`--ref`)을 받음 |
@@ -58,7 +59,9 @@ vulnerable API reachable→ 엔드포인트 → ... → 호출 위치 콜 경로
 
 **Phase 7 (위험도 우선순위) 구현 완료** — 상세 계획·검증 `phase-7-risk.md` (2026-11-22 픽스처 3종 + 실제 DB + 브라우저 + java-sec-code 정렬 확인)
 
-**다음 작업: Phase 8 — 조치(Remediation) 안내**
+**Phase 8 (조치 안내) 완료** — 상세 계획·검증 `phase-8-remediation.md` (2026-11-22 픽스처 3종 + 실제 DB + 브라우저 + java-sec-code 28개 의존성 독립 대조)
+
+**로드맵 Phase 0~8 완료.** 남은 선택 과제: Stage B Java Analyzer Adapter(정밀도가 부족할 때), CISA KEV 등 익스플로잇 정보, `SecurityFilterChain` URL 규칙 해석, Maven Central 최신 버전 조회, LLM 기반 설명(결정적 결과 위에 선택적으로)
 
 ---
 
@@ -74,7 +77,7 @@ Phase 4  Java 소스 사용 분석                ✅ 완료, 여기까지 MVP 1
 Phase 5  Spring 엔드포인트 분석             ✅ 완료
 Phase 6  도달성(Reachability) 분석          ✅ 완료
 Phase 7  위험도 우선순위화                  ✅ 완료
-Phase 8  조치(Remediation) 안내             ◀ 다음
+Phase 8  조치(Remediation) 안내             ✅ 완료
 (선택)   Stage B Java Analyzer Adapter / LLM 설명 생성
 ```
 

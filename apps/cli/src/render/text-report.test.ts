@@ -4,6 +4,7 @@ import type { FindingUsage, VulnerabilityFinding } from '@vulntrace/shared';
 import {
   renderDependencies,
   renderEndpoints,
+  renderFixPlan,
   renderReachability,
   renderRisk,
   renderSourceUsage,
@@ -525,5 +526,37 @@ describe('renderRisk', () => {
 
   it('says unavailable when the stage did not run', () => {
     expect(renderRisk(baseReport)).toBe('Risk: unavailable (SKIPPED — not implemented (Phase 7))');
+  });
+});
+
+describe('renderFixPlan', () => {
+  it('recommends the version that fixes the finding, with the evidence behind it', () => {
+    const report: ScanReport = {
+      ...baseReport,
+      findings: [
+        {
+          ...finding,
+          evidence: {
+            ...finding.evidence,
+            affectedRanges: [{ type: 'ECOSYSTEM', events: [{ introduced: '0' }, { fixed: '1.10.0' }] }],
+          },
+          risk: { score: 89, reasons: [], rulesVersion: 'r1' },
+        },
+      ],
+    };
+    const lines = renderFixPlan(report).split('\n');
+    expect(lines.slice(0, 6)).toEqual([
+      'Fix plan: 1 dependency, 1 finding',
+      '',
+      '1. org.apache.commons:commons-text  1.9 → 1.10.0  (direct, pom.xml)',
+      '   fixes 1 of 1  ·  highest risk 89',
+      '   UPGRADE_DIRECT: Change <version> of org.apache.commons:commons-text from 1.9 to 1.10.0 in pom.xml (fixes 1 of 1 finding).',
+      '     CVE-2022-42889  risk 89  fixed  (fixed in 1.10.0)',
+    ]);
+    expect(lines[lines.length - 1]).toMatch(/^Basis: Lowest fixed version listed by OSV/);
+  });
+
+  it('says so when nothing is vulnerable', () => {
+    expect(renderFixPlan(baseReport)).toBe('Fix plan: no vulnerable dependencies');
   });
 });

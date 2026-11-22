@@ -344,6 +344,7 @@ interface SourceUsageRow {
 
 interface ProjectVulnerabilityRow {
   id: string;
+  scanId: string;
   fixedVersions: string[];
   queriedAt: Date;
   affectedRanges: unknown;
@@ -436,6 +437,7 @@ function toStoredFinding(row: ProjectVulnerabilityRow): StoredFinding {
     : undefined;
   return {
     id: row.id,
+    scanId: row.scanId,
     finding: {
       vulnerability: {
         id: row.vulnerability.sourceId,

@@ -25,3 +25,5 @@ export type { EndpointRepository } from './ports/EndpointRepository.js';
 export { summarizeScan } from './summary/summarizeScan.js';
 export type { ScanSummary, ScanSummaryInput } from './summary/summarizeScan.js';
 export { compareFindings, pickDisplayId, SEVERITY_RANK } from './summary/findingOrder.js';
+export { planRemediation } from '@vulntrace/remediation';
+export type { RemediationFinding, RemediationInput } from '@vulntrace/remediation';

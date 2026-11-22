@@ -3,6 +3,7 @@ import type { RepositoryScanRunner } from '@vulntrace/core';
 import {
   renderDependencies,
   renderEndpoints,
+  renderFixPlan,
   renderReachability,
   renderRisk,
   renderSourceUsage,
@@ -24,7 +25,7 @@ interface ReportCliOptions extends SourceCliOptions, MavenCliOptions, Vulnerabil
 export function registerReportCommand(program: Command, runner: RepositoryScanRunner): void {
   const command = program
     .command('report')
-    .description('Print the full scan report (summary, dependencies, vulnerabilities, source usage evidence, Spring endpoints, reachability paths, risk reasons)')
+    .description('Print the full scan report (summary, dependencies, vulnerabilities, source usage evidence, Spring endpoints, reachability paths, risk reasons, fix plan)')
     .argument('<target>', TARGET_ARGUMENT_DESCRIPTION)
     .option('--json', 'print the full ScanReport as JSON instead of text');
   addSourceOptions(command);
@@ -51,6 +52,7 @@ export function registerReportCommand(program: Command, runner: RepositoryScanRu
         renderEndpoints(report),
         renderReachability(report),
         renderRisk(report),
+        renderFixPlan(report),
       ].join('\n\n'),
     );
   });

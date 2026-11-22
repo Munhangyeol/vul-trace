@@ -3,6 +3,8 @@ import type { ProjectDependency, VulnerabilityFinding } from '@vulntrace/shared'
 /** A finding as stored — `id` is stable per (scan, dependency, vulnerability), used for `GET /findings/:id`. */
 export interface StoredFinding {
   id: string;
+  /** Scan the finding belongs to — used to plan remediation across its sibling findings. */
+  scanId: string;
   finding: VulnerabilityFinding;
 }
 

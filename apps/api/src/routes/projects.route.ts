@@ -2,12 +2,14 @@ import { existsSync, statSync } from 'node:fs';
 import type { FastifyPluginAsync } from 'fastify';
 import {
   compareFindings,
+  planRemediation,
   parseGitHubRepositoryUrl,
   summarizeScan,
   validateGitRef,
 } from '@vulntrace/core';
 import type {
   ProjectEndpointsDto,
+  ProjectRemediationDto,
   ProjectListItemDto,
   ProjectSource,
   ProjectSourceType,
@@ -18,6 +20,7 @@ import type { Container } from '../container.js';
 import { toProjectDependencyDto } from '../dto/dependency.dto.js';
 import { toSpringEndpointDto } from '../dto/endpoint.dto.js';
 import { toProjectDto } from '../dto/project.dto.js';
+import { toDependencyRemediationDto } from '../dto/remediation.dto.js';
 import { toVulnerabilityFindingDto } from '../dto/vulnerability.dto.js';
 import { isWithinScanRoot } from '../lib/scanRoot.js';
 
@@ -285,6 +288,33 @@ export function createProjectRoutes(container: Container): FastifyPluginAsync {
           findings: sorted.map(toVulnerabilityFindingDto),
           coverage: latestScan.vulnerabilityCoverage,
         };
+      },
+    );
+
+    app.get<{ Params: { projectId: string } }>(
+      '/projects/:projectId/remediation',
+      async (request, reply) => {
+        const project = await container.projectRepository.findById(request.params.projectId);
+        if (!project) {
+          return reply.code(404).send({ error: 'NOT_FOUND', message: 'project not found' });
+        }
+        const latestScan = (await container.scanRepository.listByProject(project.id))[0];
+        if (!latestScan) {
+          const empty: ProjectRemediationDto = { scanId: null, dependencies: [] };
+          return empty;
+        }
+        const [findings, dependencies] = await Promise.all([
+          container.findingRepository.listFindings(latestScan.id),
+          container.findingRepository.listDependencies(latestScan.id),
+        ]);
+        const dto: ProjectRemediationDto = {
+          scanId: latestScan.id,
+          dependencies: planRemediation({
+            findings: findings.map((s) => ({ id: s.id, finding: s.finding })),
+            dependencies,
+          }).map(toDependencyRemediationDto),
+        };
+        return dto;
       },
     );
   };

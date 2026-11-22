@@ -10,6 +10,7 @@
     { "path": "packages/spring-analyzer" },
     { "path": "packages/reachability" },
     { "path": "packages/risk" },
+    { "path": "packages/remediation" },
     { "path": "packages/core" },
     { "path": "apps/cli" },
     { "path": "apps/api" }

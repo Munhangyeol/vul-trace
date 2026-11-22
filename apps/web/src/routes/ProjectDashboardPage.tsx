@@ -153,6 +153,9 @@ export function ProjectDashboardPage() {
             <Link to={`/projects/${projectId}/endpoints`} className="link-button">
               View endpoints →
             </Link>
+            <Link to={`/projects/${projectId}/fix-plan`} className="link-button">
+              View fix plan →
+            </Link>
           </div>
         </>
       )}
