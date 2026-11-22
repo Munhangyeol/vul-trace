@@ -24,17 +24,17 @@ React Dashboard / CLI Report
 
 전체 제품 스펙, 아키텍처 규칙, 개발 단계는 [`CLAUDE.md`](./CLAUDE.md)(또는 [`CLAUDE_KR.md`](./CLAUDE_KR.md))를, 이 리포지토리가 만들어진 스캐폴딩 계획은 [`.claude/docs/init_plan.md`](./.claude/docs/init_plan.md)를 참고하세요.
 
-> **현재 상태: Phase 7까지 구현 완료 (MVP 1 달성) + GitHub 저장소 입력** — Phase 1(Maven 의존성 분석), Phase 2(SBOM + OSV 취약점 매칭), Phase 3(CLI 리포트 + React 대시보드, DB 연동), Phase 4(Java 소스 사용 분석), Phase 5(Spring 엔드포인트 분석), Phase 6(도달 가능성 분석), Phase 7(위험도 우선순위)이 구현되어 있고, 로컬 경로뿐 아니라 공개 GitHub 저장소 URL로도 스캔할 수 있습니다. 조치 안내(Phase 8)는 아직 없습니다. 실제 화면은 아래 [시연](#시연-phase-67)을, 단계별 동작은 [현재 구현 상태](#현재-구현-상태-phase-7까지)를 참고하세요.
+> **현재 상태: 로드맵 Phase 0~8 모두 구현 (MVP 1 달성) + GitHub 저장소 입력** — Phase 1(Maven 의존성 분석), Phase 2(SBOM + OSV 취약점 매칭), Phase 3(CLI 리포트 + React 대시보드, DB 연동), Phase 4(Java 소스 사용 분석), Phase 5(Spring 엔드포인트 분석), Phase 6(도달 가능성 분석), Phase 7(위험도 우선순위), Phase 8(조치 안내)이 구현되어 있고, 로컬 경로뿐 아니라 공개 GitHub 저장소 URL로도 스캔할 수 있습니다. 실제 화면은 아래 [시연](#시연-phase-68)을, 단계별 동작은 [현재 구현 상태](#현재-구현-상태-phase-8까지)를 참고하세요.
 >
 > **OSV 조회와 네트워크 전송**: `vulntrace vulnerabilities`/`scan`(기본 동작) 또는 API의 `POST /api/projects/:id/scans`(`checkVulnerabilities` 기본값 `true`)는 확정된 의존성의 패키지 좌표(`groupId:artifactId@version`, purl)를 `https://api.osv.dev`로 전송해 취약점을 조회합니다. 소스 코드나 파일 내용은 전송하지 않습니다. CLI에서는 `--skip-vulnerabilities`로, API에서는 `checkVulnerabilities: false`로 끌 수 있습니다.
 
 ---
 
-## 시연 (Phase 6~7)
+## 시연 (Phase 6~8)
 
 `fixtures/spring-vulnerable-reachable`을 CLI와 웹 대시보드로 스캔한 결과입니다(2026-11-22, 실제 OSV 조회, Maven 미실행). 이 픽스처는 `POST /api/templates/render` → `TemplateController.render` → `TemplateService.render` → `StringSubstitutor.createInterpolator()`(CVE-2022-42889, Text4Shell)로 이어지도록 만든 예제입니다.
 
-VulnTrace는 "취약한 라이브러리가 있다"에서 멈추지 않고, **어떤 HTTP 요청이 어떤 코드를 거쳐 취약한 호출에 닿는지**와 **그래서 얼마나 먼저 고쳐야 하는지**를 근거와 함께 보여 줍니다.
+VulnTrace는 "취약한 라이브러리가 있다"에서 멈추지 않고, **어떤 HTTP 요청이 어떤 코드를 거쳐 취약한 호출에 닿는지**, **그래서 얼마나 먼저 고쳐야 하는지**, **어느 버전으로 올리면 해결되는지**를 근거와 함께 보여 줍니다.
 
 ```text
 $ node apps/cli/dist/index.js report fixtures/spring-vulnerable-reachable
@@ -79,9 +79,34 @@ CVE-2022-42889  org.apache.commons:commons-text@1.9  risk 89
 
 ![Vulnerability List sorted by risk](./.claude/resources/web-vulnerability-list.jpg)
 
+**조치 안내 (Phase 8)** — `fix-plan`은 취약한 의존성마다 "어느 버전으로 올리면 알려진 Finding이 몇 개 해결되는지"를 한 줄로 알려 줍니다. 권장 버전은 OSV에 수정 버전으로 적힌 버전 중, 그 의존성의 **모든 Finding의 영향 범위를 벗어나는 가장 낮은 버전**입니다(Maven 버전 규칙으로 비교).
+
+```text
+$ node apps/cli/dist/index.js fix-plan fixtures/spring-vulnerable-reachable
+Fix plan: 1 dependency, 1 finding
+
+1. org.apache.commons:commons-text  1.9 → 1.10.0  (direct, pom.xml)
+   fixes 1 of 1  ·  highest risk 89
+   UPGRADE_DIRECT: Change <version> of org.apache.commons:commons-text from 1.9 to 1.10.0 in pom.xml (fixes 1 of 1 finding).
+   reachable from: POST /api/templates/render
+   affected methods: com.example.demo.TemplateService#render
+   affected files: src/main/java/com/example/demo/TemplateService.java:14
+     CVE-2022-42889  risk 89  fixed  (fixed in 1.10.0)
+
+Basis: Lowest fixed version listed by OSV above the current one that no known finding of this dependency affects. ...
+```
+
+**Fix plan 화면** — 대시보드의 "View fix plan →"에서 의존성별 계획을 위험도 순으로 봅니다. 아래는 `spring-vulnerable-used`의 jackson-databind로, 수정 버전이 2.18 / 2.21 / 2.22 / 3.1 계열에 흩어진 CVE 12개가 `2.15.2 → 2.18.11` 한 번으로 모두 해결된다는 것과, 코드에서 쓰지 않으니 제거도 검토하라는 안내가 나옵니다. guava처럼 메이저 버전이 바뀌면 경고가 붙습니다.
+
+![Fix plan](./.claude/resources/web-fix-plan.jpg)
+
+**상세 화면 — Remediation** — CLAUDE.md §7 Phase 8이 요구하는 항목(현재·수정 버전, 영향 파일·메서드, 도달 엔드포인트, 권장 조치)을 한 섹션에 모으고, 이 Finding이 권장 버전에서 해결되는지 표시합니다.
+
+![Remediation](./.claude/resources/web-remediation.jpg)
+
 ---
 
-## 현재 구현 상태 (Phase 7까지)
+## 현재 구현 상태 (Phase 8까지)
 
 | Phase | 내용 | 상태 |
 |---|---|---|
@@ -94,7 +119,7 @@ CVE-2022-42889  org.apache.commons:commons-text@1.9  risk 89
 | 5 | Spring 엔드포인트 분석 (`@RestController`/`@Controller` + `@*Mapping` → HTTP 메서드, 경로, 컨트롤러 메서드, 어노테이션 증거) | ✅ 완료 |
 | 6 | 도달 가능성 분석 (엔드포인트 → 호출 그래프 → 취약 API 호출 경로, 단계별 호출 위치 증거) | ✅ 완료 |
 | 7 | 위험도 우선순위 (0~100 점수, 근거 합계 = 점수, 위험도 순 정렬) | ✅ 완료 |
-| 8 | 조치 안내 | 미착수 |
+| 8 | 조치 안내 (의존성별 권장 버전, 조치 종류, 영향 파일·메서드·엔드포인트, CVE별 해결 여부) | ✅ 완료 |
 
 아래 결과는 `fixtures/spring-vulnerable-used`를 실제로 스캔해서 얻은 것입니다(2026-11-22, 실제 OSV 조회, `--allow-maven` 없이 실행). OSV 데이터는 계속 갱신되므로 취약점 개수는 실행 시점에 따라 달라질 수 있습니다. 픽스처의 기준 취약점인 `commons-text 1.9` → CVE-2022-42889(Critical, fixed `1.10.0`)는 항상 검출되어야 합니다.
 
@@ -147,7 +172,8 @@ Spring endpoints: 2
   POST  /api/templates/render  com.example.demo.TemplateController#render  src/main/java/com/example/demo/TemplateController.java:19
 ```
 
-- `scan`은 요약 블록과 취약점 표를 출력합니다. `report`는 요약, 의존성, 취약점, 미확정 의존성, 소스 사용 증거, Spring 엔드포인트, 도달 경로, 위험 근거를 모두 담은 전체 텍스트 리포트를 출력하고, `--json`을 주면 JSON으로 출력합니다.
+- `scan`은 요약 블록과 취약점 표를 출력합니다. `report`는 요약, 의존성, 취약점, 미확정 의존성, 소스 사용 증거, Spring 엔드포인트, 도달 경로, 위험 근거, 조치 계획을 모두 담은 전체 텍스트 리포트를 출력하고, `--json`을 주면 JSON으로 출력합니다.
+- `fix-plan`은 조치 계획만 출력합니다(`--json` 지원). 조치는 `UPGRADE_DIRECT`(pom.xml 버전 변경) / `OVERRIDE_TRANSITIVE`(전이 의존성을 `<dependencyManagement>`로 고정) / `NO_FIX`(수정 버전 없음 — 사용 위치를 근거로 대안 안내) / `REVIEW_UNUSED`(쓰이지 않는 직접 의존성 — 제거 검토) 중 해당하는 것이 붙고, 메이저 버전이 바뀌면 경고가 붙습니다. 조치는 저장된 결과로 조회할 때 계산하므로 DB 변경이 없고, 같은 데이터면 항상 같은 계획이 나옵니다.
 - `Reachable`은 `yes`(엔드포인트에서 닿는 경로 있음) / `no path`(취약 API는 쓰지만 경로를 못 찾음 — 없다는 증명은 아님) / `no`(취약 API를 쓰지 않음) / `no info`(취약 API 정보 없음) 중 하나입니다. 경로는 엔드포인트 핸들러에서 시작해 필드·매개변수·지역 변수의 선언 타입, 정적 호출, 생성자, 인터페이스 → 프로젝트 구현까지 따라갑니다.
 - `Risk`는 0~100 점수입니다. CVSS(최대 40) + 사용 단계(안 쓰임 0 / 쓰임 10 / 취약 API 사용 20 / 도달 35) + 직접 의존성 5 + 인증(도달할 때만: 없음 +10, 필요 −10, 모름 0) + OSV 익스플로잇 근거 10을 더한 값이고, 근거마다 점수가 붙어 합계가 항상 점수와 같습니다. 가중치는 `packages/risk/src/rules.ts` 한 곳에 있고 버전(`RULES_VERSION`)과 함께 저장됩니다.
 - 엔드포인트는 클래스 수준 `@RequestMapping` 경로와 메서드 수준 경로를 합친 값입니다. `@RequestMapping`에 `method`가 없으면 모든 HTTP 메서드를 받으므로 `ANY`로 표시합니다. 경로나 메서드가 문자열 리터럴이 아니라 상수 같은 식이면 값을 추측하지 않고 `${ApiPaths.USERS}`처럼 식 그대로 두고 `unresolved:`에 적습니다.
@@ -164,7 +190,7 @@ Spring endpoints: 2
 
 ![Project List](./.claude/resources/web-project-list.jpg)
 
-**Project Dashboard**: 웹에서 "Run scan"을 누르면 API가 CLI와 같은 `ScanOrchestrator`로 스캔하고 결과를 PostgreSQL에 저장합니다. 화면에는 Dependencies / Vulnerabilities / Critical / High 집계, 단계별 상태(PROJECT_DETECTION → … → RISK)와 SKIPPED/FAILED 사유, vulnerability coverage, 미확정 의존성 목록이 나옵니다. Used Vulnerabilities는 소스에서 사용하는 취약점 수이고(소스 분석 전 스캔이면 `—`), Spring Endpoints는 찾은 엔드포인트 수입니다(SPRING_ENDPOINT 단계가 실행되지 않았으면 `0`이 아니라 `—`). Reachable Vulnerabilities는 엔드포인트에서 닿는 취약점 수입니다(REACHABILITY 단계 전 스캔이면 `—`). 화면은 위 [시연](#시연-phase-67)을 참고하세요.
+**Project Dashboard**: 웹에서 "Run scan"을 누르면 API가 CLI와 같은 `ScanOrchestrator`로 스캔하고 결과를 PostgreSQL에 저장합니다. 화면에는 Dependencies / Vulnerabilities / Critical / High 집계, 단계별 상태(PROJECT_DETECTION → … → RISK)와 SKIPPED/FAILED 사유, vulnerability coverage, 미확정 의존성 목록이 나옵니다. Used Vulnerabilities는 소스에서 사용하는 취약점 수이고(소스 분석 전 스캔이면 `—`), Spring Endpoints는 찾은 엔드포인트 수입니다(SPRING_ENDPOINT 단계가 실행되지 않았으면 `0`이 아니라 `—`). Reachable Vulnerabilities는 엔드포인트에서 닿는 취약점 수입니다(REACHABILITY 단계 전 스캔이면 `—`). "View fix plan →"으로 조치 계획 화면(`GET /api/projects/:projectId/remediation`)에 들어갑니다. 화면은 위 [시연](#시연-phase-68)을 참고하세요.
 
 **Spring endpoints**: 대시보드의 "View endpoints →"로 들어가며, Method / Path / Controller / Handler / Source(파일:라인) / Mapping(클래스·메서드 어노테이션 원문) 열을 보여 줍니다. 데이터는 `GET /api/projects/:projectId/endpoints`에서 가져옵니다.
 
@@ -185,7 +211,7 @@ Spring endpoints: 2
   - references
   - Reachability path: 도달 여부, 경로 수, 분석 범위(방문한 메서드 수, 해석하지 못한 호출 수, 따라가지 않는 기능), 엔드포인트별 경로(`GET /api/findings/:findingId/reachability`)
   - Risk reasons: 점수와 근거별 점수·설명·증거, 가중치 버전
-  - Remediation 섹션은 "Not analyzed yet (Phase 8)"으로 표시됩니다.
+  - Remediation: 이 Finding의 의존성 조치 계획과 권장 버전에서의 해결 여부(`GET /api/findings/:findingId/remediation`)
 
 ### 실제 오픈소스 저장소로 확인
 
@@ -208,6 +234,8 @@ Phase 6~7은 java-sec-code로 확인했습니다(2026-11-22).
 
 - **도달 가능성**: 엔드포인트에서 닿는 Finding 10건(fastjson, log4j-core, snakeyaml)의 경로를 소스와 하나씩 대조했고 모두 맞았습니다(`Fastjson.java:23`, `Jsonp.java:77`, `Log4j.java:20`, `Rce.java:113/119`). 호출 그래프는 메서드 375개, 호출 187개이고, 프로젝트 코드로 이어질 수 있는데 해석하지 못한 호출은 18개입니다.
 - **위험도**: Finding 161개 중 상위 10개가 모두 도달하는 Finding입니다(log4j-core 80, fastjson 79, snakeyaml 73~62). 도달하는 MEDIUM snakeyaml(66)이 도달 정보가 없는 CRITICAL fastjson·dom4j(55·54)보다 위에 옵니다. 이 프로젝트는 Spring Security를 쓰므로 인증은 모두 "모름"(0점)입니다.
+
+Phase 8도 java-sec-code로 확인했습니다(2026-11-22). Finding 161개가 의존성 31개로 묶이고, 예를 들어 jackson-databind `2.9.8 → 2.18.11`로 Finding 60개가 모두 해결되며, snakeyaml은 CVE-2022-1471이 2.0에서만 고쳐져 `1.21 → 2.0`(메이저 업그레이드 경고), velocity 1.7은 수정 버전이 없어 `NO_FIX`로 나옵니다. 권장 버전이 있는 의존성 28개를 따로 검산해, 현재 버전과 권장 버전 사이의 어떤 후보도 모든 Finding을 해결하지 못하고, 현재 버전은 161건 모두 영향 범위 안으로 판정되는 것(OSV의 실제 매칭과 일치)을 확인했습니다.
 
 Phase 4 확인 중에 고친 매핑:
 
@@ -245,7 +273,7 @@ clone한 저장소는 신뢰할 수 없는 입력으로 다룹니다.
 - 받은 코드는 빌드하거나 실행하지 않습니다. 파일 5만 개 / 500 MiB를 넘으면 분석하지 않고 실패로 기록합니다. clone은 OS 임시 폴더에 만들고 스캔이 끝나면(실패해도) 지웁니다.
 - 분석한 commit SHA를 스캔 결과(`scan_jobs.commit_sha`)에 남기고, 의존성 증거 경로는 임시 폴더가 아니라 저장소 기준(`pom.xml`)으로 저장합니다.
 
-### 알려진 한계 (Phase 7 기준)
+### 알려진 한계 (Phase 8 기준)
 
 소스 사용 분석 (Stage A, TypeScript 경량 파서):
 
@@ -277,6 +305,14 @@ Spring 엔드포인트 분석 (Stage A, 어노테이션 기반):
 - 인증은 정적으로 확실한 경우만 판단합니다. Spring Security 의존성이 아예 없으면 "인증 없음", 핸들러나 컨트롤러에 `@PreAuthorize`/`@Secured`/`@RolesAllowed`가 있으면 "인증 필요"이고, `SecurityFilterChain` URL 규칙으로 보호하는 경우는 "모름"(0점)입니다.
 - OSV에는 "알려진 익스플로잇" 필드가 없어 `EVIDENCE` 참조만 근거로 씁니다. java-sec-code 161건 중 해당하는 경우는 0건이었습니다. CISA KEV 같은 외부 목록은 아직 쓰지 않습니다.
 - 가중치는 초안입니다. 바꿀 때는 `rules.ts`의 `RULES_VERSION`을 올립니다.
+
+조치 안내 (Phase 8):
+
+- 권장 버전은 OSV에 수정 버전으로 적힌 버전 중에서만 고릅니다. Maven Central을 조회하지 않으므로 더 최신 릴리스가 있을 수 있고, OSV에 아직 없는 취약점이나 업그레이드한 버전이 새로 끌어오는 의존성은 반영되지 않습니다(화면과 CLI에 근거 문장으로 항상 표시).
+- 전이 의존성은 `<dependencyManagement>`로 버전을 고정하는 방법을 기본으로 안내합니다. 그 의존성을 끌어온 부모 의존성의 어느 버전이 고쳤는지는 모릅니다.
+- 부모 POM이 버전을 관리하는 의존성(Spring Boot starter 등)은 Maven 없이는 버전을 몰라 Finding이 없으므로 계획에도 나오지 않습니다.
+- OSV 범위 중 `ECOSYSTEM` 타입만 평가합니다(Maven 데이터는 모두 이 타입). Maven 버전 규칙으로 해석할 수 없는 문자열은 추측하지 않고 "평가 불가"로 표시합니다.
+- pom.xml을 자동으로 고치지 않습니다.
 
 그 밖에:
 
@@ -310,7 +346,7 @@ Spring 엔드포인트 분석 (Stage A, 어노테이션 기반):
 apps/
   web/    React + TypeScript + Vite 대시보드 (TanStack Query, React Router)
   api/    Node.js + TypeScript + Fastify HTTP API
-  cli/    TypeScript CLI (Commander.js) — `vulntrace scan|dependencies|vulnerabilities|endpoints|report`
+  cli/    TypeScript CLI (Commander.js) — `vulntrace scan|dependencies|vulnerabilities|endpoints|report|fix-plan`
 
 packages/
   shared/               도메인 타입, Result/Error 모델 (의존성 없음)
@@ -322,6 +358,7 @@ packages/
   spring-analyzer/      Spring 엔드포인트 탐지 (초기 대상: Spring Boot)
   reachability/         엔드포인트 → 취약 API 사용처 호출 경로 분석
   risk/                 위험도 점수 산정
+  remediation/          조치 안내 — Maven 버전 비교, OSV 범위 평가, 의존성별 권장 버전
   core/                 ScanOrchestrator — 위 단계들을 조립, api와 cli가 공통으로 사용
                         (언어/프레임워크별 분석기는 core의 인터페이스를 구현하는 형태로 추가될 예정)
 
@@ -329,7 +366,7 @@ prisma/       PostgreSQL 스키마 (projects, scans, dependencies, vulnerabiliti
 fixtures/     정적 분석 대상으로만 쓰이는 샘플 Maven/Spring Boot 프로젝트 (빌드/실행하지 않음)
 ```
 
-의존 방향: `web → shared`, `api/cli → core → (repository-source, dependency-analyzer, sbom, vulnerability, source-analyzer, spring-analyzer, reachability, risk) → shared`.
+의존 방향: `web → shared`, `api/cli → core → (repository-source, dependency-analyzer, sbom, vulnerability, source-analyzer, spring-analyzer, reachability, risk, remediation) → shared`.
 
 ---
 
