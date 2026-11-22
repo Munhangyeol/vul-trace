@@ -41,4 +41,9 @@ export interface SpringEndpoint {
   /** Annotation argument expressions that static analysis could not evaluate. Empty = fully resolved. */
   unresolved: string[];
   evidence: SpringEndpointEvidence;
+  /**
+   * Phase 7: Spring Security access annotations (@PreAuthorize, @Secured, @RolesAllowed) on the
+   * handler method or its controller class, as written. Empty = none found (not proof of no security).
+   */
+  security?: SpringAnnotationEvidence[];
 }

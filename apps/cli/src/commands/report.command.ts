@@ -4,6 +4,7 @@ import {
   renderDependencies,
   renderEndpoints,
   renderReachability,
+  renderRisk,
   renderSourceUsage,
   renderSummary,
   renderVulnerabilities,
@@ -23,7 +24,7 @@ interface ReportCliOptions extends SourceCliOptions, MavenCliOptions, Vulnerabil
 export function registerReportCommand(program: Command, runner: RepositoryScanRunner): void {
   const command = program
     .command('report')
-    .description('Print the full scan report (summary, dependencies, vulnerabilities, source usage evidence, Spring endpoints, reachability paths)')
+    .description('Print the full scan report (summary, dependencies, vulnerabilities, source usage evidence, Spring endpoints, reachability paths, risk reasons)')
     .argument('<target>', TARGET_ARGUMENT_DESCRIPTION)
     .option('--json', 'print the full ScanReport as JSON instead of text');
   addSourceOptions(command);
@@ -49,6 +50,7 @@ export function registerReportCommand(program: Command, runner: RepositoryScanRu
         renderSourceUsage(report),
         renderEndpoints(report),
         renderReachability(report),
+        renderRisk(report),
       ].join('\n\n'),
     );
   });

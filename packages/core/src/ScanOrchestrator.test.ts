@@ -361,6 +361,7 @@ describe('ScanOrchestrator.run', () => {
           ...finding,
           usage: expect.objectContaining({ used: false }),
           reachability: expect.objectContaining({ status: 'NO_VULNERABLE_API_USAGE', reachable: false }),
+          risk: expect.objectContaining({ score: expect.any(Number) }),
         },
       ]);
       expect(report.vulnerabilityCoverage).toEqual({ checked: 1, notChecked: 0, failed: 1 });
@@ -408,6 +409,7 @@ describe('ScanOrchestrator.run', () => {
           ...finding,
           usage: expect.objectContaining({ used: false }),
           reachability: expect.objectContaining({ status: 'NO_VULNERABLE_API_USAGE', reachable: false }),
+          risk: expect.objectContaining({ score: expect.any(Number) }),
         },
       ]);
       expect(report.vulnerabilityCoverage).toEqual({ checked: 1, notChecked: 0, failed: 0 });
@@ -500,7 +502,7 @@ describe('ScanOrchestrator.run', () => {
         status: 'FAILED',
         reason: 'PROJECT_NOT_FOUND: gone',
       });
-      expect(report.findings).toEqual([finding]);
+      expect(report.findings).toEqual([{ ...finding, risk: expect.objectContaining({ score: expect.any(Number) }) }]);
       expect(report.findings[0]?.usage).toBeUndefined();
     });
 
@@ -516,7 +518,7 @@ describe('ScanOrchestrator.run', () => {
         status: 'FAILED',
         reason: 'source analysis threw: boom',
       });
-      expect(report.findings).toEqual([finding]);
+      expect(report.findings).toEqual([{ ...finding, risk: expect.objectContaining({ score: expect.any(Number) }) }]);
     });
 
     it('is SKIPPED when the dependency analysis failed', async () => {
@@ -643,7 +645,6 @@ describe('ScanOrchestrator.run', () => {
 
       expect(report.stages).toContainEqual({ stage: 'REACHABILITY', status: 'SUCCEEDED' });
       expect(report.callGraph).toEqual({ methodCount: 0, edgeCount: 0, unresolvedCallCount: 0 });
-      expect(report.stages).toContainEqual({ stage: 'RISK', status: 'SKIPPED', reason: 'not implemented (Phase 7)' });
     });
 
     it('is SKIPPED when source analysis failed', async () => {
@@ -675,6 +676,68 @@ describe('ScanOrchestrator.run', () => {
         reason: 'reachability analysis threw: boom',
       });
       expect(report.stages).toContainEqual({ stage: 'SPRING_ENDPOINT', status: 'SUCCEEDED' });
+    });
+  });
+
+  describe('RISK stage (Phase 7)', () => {
+    const purl = 'pkg:maven/org.apache.commons/commons-text@1.9';
+    const dependencies = [dep(purl)];
+    const finding: VulnerabilityFinding = {
+      vulnerability: {
+        id: 'GHSA-599f-7c49-w659',
+        aliases: ['CVE-2022-42889'],
+        summary: 'x',
+        severity: 'CRITICAL',
+        severitySource: 'CVSS_V3',
+        cvssScore: 9.8,
+        modified: '2024-01-01T00:00:00Z',
+        references: [],
+        evidenceReferences: [],
+      },
+      package: { ecosystem: 'Maven', name: 'org.apache.commons:commons-text', version: '1.9', purl },
+      fixedVersions: ['1.10.0'],
+      evidence: { provider: 'OSV', queriedAt: '2026-01-01T00:00:00Z', affectedRanges: [], affectedVersions: [] },
+    };
+    const orchestratorWith = (deps: Partial<ConstructorParameters<typeof ScanOrchestrator>[0]>) =>
+      new ScanOrchestrator({
+        dependencyAnalyzer: fakeAnalyzer(async () => ok(analysisResult({ dependencies }))),
+        sbomBuilder: fakeSbomBuilder(() =>
+          ok(bom([{ type: 'library', purl, group: 'org.apache.commons', name: 'commons-text', version: '1.9', scope: 'required' }])),
+        ),
+        vulnerabilityProvider: fakeVulnerabilityProvider(async () => ok({ findings: [finding], failedPackages: [], warnings: [] })),
+        sourceAnalyzer: emptySourceAnalyzer,
+        logger: silentScanLogger,
+        ...deps,
+      });
+
+    it('scores every finding with reasons that sum to the score', async () => {
+      const report = await orchestratorWith({}).run('/project');
+
+      expect(report.stages).toContainEqual({ stage: 'RISK', status: 'SUCCEEDED' });
+      const risk = report.findings[0]?.risk;
+      // CVSS 9.8 (+39) + not used (0) + direct (+5)
+      expect(risk?.score).toBe(44);
+      expect(risk?.reasons.reduce((sum, r) => sum + r.weight, 0)).toBe(44);
+    });
+
+    it('is SKIPPED without a vulnerability check', async () => {
+      const report = await orchestratorWith({}).run('/project', { allowMaven: false, checkVulnerabilities: false });
+      expect(report.stages).toContainEqual({ stage: 'RISK', status: 'SKIPPED', reason: 'no vulnerability check' });
+    });
+
+    it('records a thrown calculator error as FAILED and keeps the findings', async () => {
+      const report = await orchestratorWith({
+        riskCalculator: {
+          calculate: () => {
+            throw new Error('boom');
+          },
+        },
+      }).run('/project');
+
+      expect(report.state).toBe('PARTIAL');
+      expect(report.stages).toContainEqual({ stage: 'RISK', status: 'FAILED', reason: 'risk scoring threw: boom' });
+      expect(report.findings).toHaveLength(1);
+      expect(report.findings[0]?.risk).toBeUndefined();
     });
   });
 });

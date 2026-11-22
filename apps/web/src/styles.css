@@ -413,6 +413,23 @@ button:disabled {
   color: var(--sev-low-text);
 }
 
+/* Risk score bands reuse the severity colour tokens; the number itself is the result. */
+
+.risk-high {
+  background: var(--sev-critical-bg);
+  color: var(--sev-critical-text);
+}
+
+.risk-medium {
+  background: var(--sev-medium-bg);
+  color: var(--sev-medium-text);
+}
+
+.risk-low {
+  background: var(--sev-low-bg);
+  color: var(--sev-low-text);
+}
+
 /* Code */
 
 code,

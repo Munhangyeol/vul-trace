@@ -29,6 +29,8 @@ import type {
 import { SpringEndpointAnalyzer } from '@vulntrace/spring-analyzer';
 import { ReachabilityAnalyzer } from '@vulntrace/reachability';
 import type { CallGraphStats } from '@vulntrace/reachability';
+import { RiskScoreCalculator } from '@vulntrace/risk';
+import { pickDisplayId } from './summary/findingOrder.js';
 import type { ScanLogger } from './logging/ScanLogger.js';
 
 export interface ScanOptions extends DependencyAnalysisOptions {
@@ -85,12 +87,14 @@ export interface ScanOrchestratorDeps {
   springEndpointAnalyzer?: Pick<SpringEndpointAnalyzer, 'analyze'>;
   /** Defaults to the Stage A call-graph search. */
   reachabilityAnalyzer?: Pick<ReachabilityAnalyzer, 'analyze'>;
+  /** Defaults to the Phase 7 weight table in `@vulntrace/risk`. */
+  riskCalculator?: Pick<RiskScoreCalculator, 'calculate'>;
   logger: ScanLogger;
   now?: () => Date;
 }
 
 /** Stages not wired into the pipeline yet, with the phase that introduces them. */
-const PENDING_STAGES: ReadonlyArray<readonly [ScanStage, string]> = [['RISK', 'Phase 7']];
+const PENDING_STAGES: ReadonlyArray<readonly [ScanStage, string]> = [];
 
 const PROJECT_DETECTION_ERROR_CODES = new Set(['PROJECT_NOT_FOUND', 'UNSUPPORTED_PROJECT']);
 
@@ -294,6 +298,17 @@ export class ScanOrchestrator {
       warnings.push(...reachability.warnings);
     }
 
+    const vulnerabilityStage = stages.find((s) => s.stage === 'VULNERABILITY');
+    if (!vulnerabilityStage || vulnerabilityStage.status === 'SKIPPED') {
+      stages.push({ stage: 'RISK', status: 'SKIPPED', reason: 'no vulnerability check' });
+    } else if (vulnerabilityStage.status === 'FAILED' && findings.length === 0) {
+      stages.push({ stage: 'RISK', status: 'SKIPPED', reason: 'no vulnerability findings' });
+    } else {
+      const risk = this.scoreRisk(findings, dependencies, unresolvedDependencies, stages);
+      stages.push(risk.stage);
+      findings = risk.findings;
+    }
+
     for (const [stage, phase] of PENDING_STAGES) {
       stages.push({ stage, status: 'SKIPPED', reason: `not implemented (${phase})` });
     }
@@ -318,6 +333,49 @@ export class ScanOrchestrator {
       ...(callGraph ? { callGraph } : {}),
       warnings,
     };
+  }
+
+  /**
+   * RISK (Phase 7): an explainable 0–100 score per finding from whatever earlier stages produced.
+   * Factors whose stage did not run score 0 and say so; a failure keeps every earlier result.
+   */
+  private scoreRisk(
+    findings: readonly VulnerabilityFinding[],
+    dependencies: readonly ProjectDependency[],
+    unresolvedDependencies: readonly UnresolvedDependency[],
+    stages: readonly ScanStageResult[],
+  ): { stage: ScanStageResult; findings: VulnerabilityFinding[] } {
+    const { logger } = this.deps;
+    const calculator = this.deps.riskCalculator ?? new RiskScoreCalculator();
+    const note = (stage: ScanStage): string | undefined => {
+      const result = stages.find((s) => s.stage === stage);
+      if (result?.status === 'SUCCEEDED') return undefined;
+      return result ? `${result.status}${result.reason ? ` — ${result.reason}` : ''}` : 'not run';
+    };
+    const sourceUsageNote = note('SOURCE_USAGE');
+    const reachabilityNote = note('REACHABILITY');
+    const context = {
+      dependencies,
+      unresolvedDependencies,
+      ...(sourceUsageNote ? { sourceUsageNote } : {}),
+      ...(reachabilityNote ? { reachabilityNote } : {}),
+    };
+    try {
+      const scored = findings.map((finding): VulnerabilityFinding => ({
+        ...finding,
+        risk: calculator.calculate(finding, context),
+      }));
+      const top = [...scored].sort((a, b) => (b.risk?.score ?? 0) - (a.risk?.score ?? 0))[0];
+      logger.info(
+        'RISK',
+        `${scored.length} findings scored${top?.risk ? `, highest ${top.risk.score} (${pickDisplayId(top.vulnerability)} in ${top.package.name})` : ''}`,
+      );
+      return { stage: { stage: 'RISK', status: 'SUCCEEDED' }, findings: scored };
+    } catch (cause) {
+      const reason = `risk scoring threw: ${cause instanceof Error ? cause.message : String(cause)}`;
+      logger.error('RISK', reason);
+      return { stage: { stage: 'RISK', status: 'FAILED', reason }, findings: [...findings] };
+    }
   }
 
   /**

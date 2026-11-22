@@ -13,8 +13,13 @@ export const SEVERITY_RANK: Record<Vulnerability['severity'], number> = {
   UNKNOWN: 0,
 };
 
-/** Highest severity first, then highest CVSS, then dependency name (stable display order). */
+/**
+ * Highest Phase 7 risk score first (findings without a score after scored ones), then highest
+ * severity, then highest CVSS, then dependency name (stable display order).
+ */
 export function compareFindings(a: VulnerabilityFinding, b: VulnerabilityFinding): number {
+  const riskDiff = (b.risk?.score ?? -1) - (a.risk?.score ?? -1);
+  if (riskDiff !== 0) return riskDiff;
   const severityDiff = SEVERITY_RANK[b.vulnerability.severity] - SEVERITY_RANK[a.vulnerability.severity];
   if (severityDiff !== 0) return severityDiff;
   const cvssDiff = (b.vulnerability.cvssScore ?? 0) - (a.vulnerability.cvssScore ?? 0);

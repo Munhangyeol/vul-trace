@@ -158,7 +158,48 @@ public class LoginController {
           location: { filePath: 'src/main/java/com/example/LoginController.java', line: 9, column: 5 },
         },
       },
+      security: [],
     });
+  });
+
+  it('records access annotations on the handler and controller, resolved through imports (Phase 7)', () => {
+    const result = analyzeSources({
+      'src/main/java/com/example/AdminController.java': `
+package com.example;
+${SPRING_IMPORTS}
+import org.springframework.security.access.prepost.PreAuthorize;
+import jakarta.annotation.security.RolesAllowed;
+@RestController
+@RolesAllowed("ADMIN")
+public class AdminController {
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/admin")
+    public String admin() { return ""; }
+
+    @PreAuthorize("permitAll()")
+    @GetMapping("/open")
+    public String open() { return ""; }
+}
+`,
+      'src/main/java/com/example/Custom.java': `
+package com.example;
+${SPRING_IMPORTS}
+import com.acme.Secured;
+@RestController
+public class Custom {
+    @Secured("X")
+    @GetMapping("/custom")
+    public String custom() { return ""; }
+}
+`,
+    });
+    const security = (path: string) =>
+      result.endpoints.find((e) => e.path === path)?.security?.map((s) => s.annotation);
+    expect(security('/admin')).toEqual(['@PreAuthorize("hasRole(\'ADMIN\')")', '@RolesAllowed("ADMIN")']);
+    // permitAll() grants access, so only the class-level annotation protects it.
+    expect(security('/open')).toEqual(['@RolesAllowed("ADMIN")']);
+    // A same-named custom annotation is not Spring Security's.
+    expect(security('/custom')).toEqual([]);
   });
 
   it('reads @RequestMapping method attributes, including static imports and multiple paths', () => {

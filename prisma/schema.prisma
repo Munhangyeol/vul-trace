@@ -102,21 +102,23 @@ model ProjectDependency {
 }
 
 model Vulnerability {
-  id             String    @id @default(uuid())
+  id                 String    @id @default(uuid())
   /// Provider identifier (CVE / GHSA / OSV id).
-  sourceId       String    @unique @map("source_id")
-  aliases        String[]
-  summary        String
-  details        String?
-  severity       String
+  sourceId           String    @unique @map("source_id")
+  aliases            String[]
+  summary            String
+  details            String?
+  severity           String
   /// Which field the severity was derived from: CVSS_V3 | DATABASE_SPECIFIC | NONE.
-  severitySource String    @map("severity_source")
-  cvssVector     String?   @map("cvss_vector")
-  cvssScore      Float?    @map("cvss_score")
-  publishedAt    DateTime? @map("published_at")
+  severitySource     String    @map("severity_source")
+  cvssVector         String?   @map("cvss_vector")
+  cvssScore          Float?    @map("cvss_score")
+  publishedAt        DateTime? @map("published_at")
   /// OSV `modified` timestamp — used to decide whether a re-scan's record is newer.
-  modifiedAt     DateTime  @map("modified_at")
-  references     Json      @default("[]")
+  modifiedAt         DateTime  @map("modified_at")
+  references         Json      @default("[]")
+  /// Phase 7: string[] of OSV EVIDENCE reference URLs. null = recorded before Phase 7 (unknown, not none).
+  evidenceReferences Json?     @map("evidence_references")
 
   projectVulnerabilities ProjectVulnerability[]
 
@@ -194,6 +196,8 @@ model SpringEndpoint {
   unresolved       Json   @default("[]")
   /// SpringEndpointEvidence — the controller / class / method annotations as written.
   evidence         Json   @default("{}")
+  /// Phase 7: SpringAnnotationEvidence[] — access annotations on the handler or its controller.
+  security         Json   @default("[]")
 
   scan              ScanJob            @relation(fields: [scanId], references: [id], onDelete: Cascade)
   reachabilityPaths ReachabilityPath[]
@@ -261,9 +265,12 @@ model RiskScore {
   score                  Float
   /// RiskReason[] — every point of the score must be explained.
   reasons                Json
+  /// Weight table the score was computed with (packages/risk/src/rules.ts RULES_VERSION).
+  rulesVersion           String @default("") @map("rules_version")
 
   scan                 ScanJob              @relation(fields: [scanId], references: [id], onDelete: Cascade)
   projectVulnerability ProjectVulnerability @relation(fields: [projectVulnerabilityId], references: [id], onDelete: Cascade)
 
+  @@index([projectVulnerabilityId])
   @@map("risk_scores")
 }

@@ -13,6 +13,7 @@ import type {
 import { parseAnnotationArguments } from './annotationArguments.js';
 import type { ElementValue } from './annotationArguments.js';
 import {
+  isSecurityAnnotation,
   MAPPING_ANNOTATIONS,
   resolveControllerAnnotation,
   resolveMappingAnnotation,
@@ -104,6 +105,7 @@ function analyzeFile(file: AnalyzedJavaFile, endpoints: SpringEndpoint[], warnin
     if (!controller) continue;
 
     const classMapping = findMapping(type.annotations, file.imports);
+    const classSecurity = type.annotations.filter((a) => isSecurityAnnotation(a, file.imports)).map(toEvidence);
     const classCondition: MappingCondition = classMapping
       ? readMapping(classMapping.annotation, classMapping.simpleName, file.imports)
       : { paths: [], methods: [], unresolved: [] };
@@ -129,6 +131,10 @@ function analyzeFile(file: AnalyzedJavaFile, endpoints: SpringEndpoint[], warnin
         ...(classMapping ? { classMapping: toEvidence(classMapping.annotation) } : {}),
         methodMapping: toEvidence(mapping.annotation),
       };
+      const security = [
+        ...method.annotations.filter((a) => isSecurityAnnotation(a, file.imports)).map(toEvidence),
+        ...classSecurity,
+      ];
 
       for (const classPath of classPaths) {
         for (const methodPath of methodPaths) {
@@ -141,6 +147,7 @@ function analyzeFile(file: AnalyzedJavaFile, endpoints: SpringEndpoint[], warnin
               location: method.location,
               unresolved,
               evidence,
+              security,
             });
           }
         }

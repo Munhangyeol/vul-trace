@@ -54,6 +54,37 @@ function resolveAnnotation(
   return imported ? simpleName : undefined;
 }
 
+/** Simple name → qualified names of the access-control annotations that require an authenticated caller. */
+const SECURITY_ANNOTATIONS: Readonly<Record<string, readonly string[]>> = {
+  PreAuthorize: ['org.springframework.security.access.prepost.PreAuthorize'],
+  Secured: ['org.springframework.security.access.annotation.Secured'],
+  RolesAllowed: ['jakarta.annotation.security.RolesAllowed', 'javax.annotation.security.RolesAllowed'],
+};
+
+/** Expressions that grant access without authentication, so the annotation does not protect anything. */
+const OPEN_ACCESS = /permitAll|isAnonymous|\banonymous\b|IS_AUTHENTICATED_ANONYMOUSLY/i;
+
+/**
+ * True when `annotation` is (provably, via imports) a Spring Security / Jakarta access annotation
+ * that requires an authenticated caller. `@PreAuthorize("permitAll()")` and the like do not count.
+ */
+export function isSecurityAnnotation(annotation: JavaAnnotation, imports: readonly JavaImport[]): boolean {
+  const written = annotation.name;
+  const simpleName = written.slice(written.lastIndexOf('.') + 1);
+  const qualifiedNames = SECURITY_ANNOTATIONS[simpleName];
+  if (!qualifiedNames) return false;
+  if (annotation.rawArguments && OPEN_ACCESS.test(annotation.rawArguments)) return false;
+  if (written.includes('.')) return qualifiedNames.includes(written);
+  return qualifiedNames.some((qualifiedName) => {
+    const packageName = qualifiedName.slice(0, qualifiedName.lastIndexOf('.'));
+    return imports.some(
+      (i) =>
+        !i.isStatic &&
+        ((!i.isWildcard && i.name === qualifiedName) || (i.isWildcard && i.name === packageName)),
+    );
+  });
+}
+
 export function resolveControllerAnnotation(
   annotation: JavaAnnotation,
   imports: readonly JavaImport[],

@@ -45,18 +45,20 @@ vulnerable API reachable→ 엔드포인트 → ... → 호출 위치 콜 경로
 | `packages/repository-source` | `RepositorySource` 인터페이스, `LocalPathSource`, `GitRepositorySource`(https://github.com만 허용, 얕은 clone, 서브모듈·LFS·심볼릭 링크·hook·자격 증명 끔, 크기 상한, commit SHA 기록), URL·ref 검증 |
 | `packages/spring-analyzer` | `SpringEndpointAnalyzer` — 어노테이션 인자 파싱(토크나이저 재사용), import 기반 Spring 어노테이션 판별, 클래스+메서드 경로 결합, HTTP 메서드 합집합/`ANY`, 계산 못 한 값은 `unresolved`, 어노테이션 원문·위치 증거 구현 완료 |
 | `packages/reachability` | `TypeIndex`(Java 이름 해석, 상·하위 타입), `CallGraphBuilder`(필드·매개변수·지역 변수·정적 호출·생성자, 인터페이스 → 프로젝트 구현 CHA, 오버로드 표시, 미해석 호출 기록), `ReachabilityAnalyzer`(엔드포인트별 BFS, 가장 짧은 경로, 단계별 호출 위치 증거, 분석 범위 표기) 구현 완료 (Phase 6) |
-| `packages/risk` | 인터페이스 + `NotImplementedError` 스텁 (Phase 7 예정) |
+| `packages/risk` | `rules.ts`(가중치 표, `RULES_VERSION`), `RiskScoreCalculator`(순수 함수, 요인별 근거, 근거 합계 = 점수, 0~100), `assessAuthentication`(Spring Security 의존성·접근 어노테이션) 구현 완료 (Phase 7) |
 | `packages/core` | `RepositoryScanRunner`가 저장소 가져오기(`REPOSITORY_FETCH`, GIT만) → `ScanOrchestrator` → 임시 폴더 삭제를 묶고, clone 경로를 저장소 기준 상대 경로로 바꿈. `ScanOrchestrator`가 PROJECT_DETECTION → DEPENDENCY → DEPENDENCY_TREE → SBOM → VULNERABILITY → SOURCE_USAGE → SPRING_ENDPOINT까지 연결 (`[SOURCE]`/`[SPRING]` 로그, 실패 시 PARTIAL). `summarizeScan`(`usedVulnerabilities` 포함)/`compareFindings`/`pickDisplayId`를 CLI·API 공용 집계·정렬 로직으로 추가 |
 | `apps/cli` | `scan`(요약+취약점 표)/`report`(요약+의존성+취약점+미확정, `--json` 지원, 소스 사용 증거 섹션)/`dependencies`/`vulnerabilities` 구현 완료. `endpoints` 명령과 요약의 `Endpoints:` 줄 추가(Phase 5). 취약점 표에 `Used`/`Vuln API` 열 (`--allow-maven`, `--skip-vulnerabilities`, `--sbom`). 모든 명령이 로컬 경로 또는 GitHub URL(`--ref`)을 받음 |
 | `apps/api` | 프로젝트/스캔/의존성/취약점/finding 라우트 + `GET /projects`(목록에 `latestScan` 집계 포함)/`GET /projects/:id/summary`(대시보드 집계, `usedVulnerabilities`), `GET /findings/:id/usages`(사용 증거), `GET /projects/:id/endpoints`(Spring 엔드포인트, summary에 `endpoints`) 구현 완료 (Prisma 저장). DTO 타입은 `packages/shared/src/api/*`로 이동. 프로젝트 등록이 `sourceType`(LOCAL/GIT)·`repoUrl`·`ref`를 받고, 스캔 결과에 `commitSha` 기록 |
 | `apps/web` | Vite + Router + TanStack Query. 프로젝트 등록/목록, 대시보드(집계+스캔 실행+단계별 상태), 취약점 목록, 상세 화면까지 실데이터 연동 완료. 목록 `Used` 열, 상세 `Usage evidence` 섹션, 대시보드 `Used Vulnerabilities`·`Spring Endpoints` 표시, 엔드포인트 목록 화면. Reachable/Risk Score는 Phase 6/7 전까지 `—`. 등록 폼에 "Local path / GitHub URL" 선택, 목록·대시보드에 출처와 commit 표시 |
-| `prisma/` | 마이그레이션 5개 적용 (`init`, `phase2_vulnerability_evidence`, `phase4_source_usage`, `github_repository_input`, `phase5_spring_endpoints`) + `phase6_reachability` 적용 |
+| `prisma/` | 마이그레이션 5개 적용 (`init`, `phase2_vulnerability_evidence`, `phase4_source_usage`, `github_repository_input`, `phase5_spring_endpoints`) + `phase6_reachability`, `phase7_risk` 적용 |
 | `fixtures/` | Spring 픽스처 4종 (`commons-text:1.9`, CVE-2022-42889 기준). `spring-vulnerable-used`에 pom 파싱 경로 검증용 `guava`/`jackson-databind`/`commons-io` 추가 |
 | 품질 도구 | ESLint, Prettier, Vitest, husky + commitlint |
 
 **Phase 6 (도달 가능성 분석) 완료** — 커밋 `9daf1f7 feat: implement Phase 6 reachability analysis`, 상세 계획 `phase-6-reachability.md` (2026-11-22 픽스처 3종 + 실제 DB + 브라우저 + java-sec-code 대조)
 
-**다음 작업: Phase 7 — 위험도 우선순위**
+**Phase 7 (위험도 우선순위) 구현 완료** — 상세 계획·검증 `phase-7-risk.md` (2026-11-22 픽스처 3종 + 실제 DB + 브라우저 + java-sec-code 정렬 확인)
+
+**다음 작업: Phase 8 — 조치(Remediation) 안내**
 
 ---
 
@@ -71,8 +73,8 @@ Phase 4  Java 소스 사용 분석                ✅ 완료, 여기까지 MVP 1
 (MVP 1 이후) GitHub 저장소 입력             ✅ 완료 — 로컬 경로 외에 GitHub URL로 스캔
 Phase 5  Spring 엔드포인트 분석             ✅ 완료
 Phase 6  도달성(Reachability) 분석          ✅ 완료
-Phase 7  위험도 우선순위화                  ◀ 다음
-Phase 8  조치(Remediation) 안내
+Phase 7  위험도 우선순위화                  ✅ 완료
+Phase 8  조치(Remediation) 안내             ◀ 다음
 (선택)   Stage B Java Analyzer Adapter / LLM 설명 생성
 ```
 

@@ -94,7 +94,7 @@ function reachableLabel(finding: VulnerabilityFinding): string {
   return finding.reachability ? REACHABILITY_LABEL[finding.reachability.status] : '-';
 }
 
-const TABLE_HEADER = ['ID', 'Severity', 'CVSS', 'Dependency', 'Used', 'Vuln API', 'Reachable', 'Fixed'] as const;
+const TABLE_HEADER = ['ID', 'Risk', 'Severity', 'CVSS', 'Dependency', 'Used', 'Vuln API', 'Reachable', 'Fixed'] as const;
 const COLUMN_GAP = '  ';
 
 /** Pads every column but the last to its widest cell so long values never shift later columns. */
@@ -115,6 +115,7 @@ export function renderVulnerabilityTable(report: ScanReport): string {
       finding.vulnerability.cvssScore !== undefined ? finding.vulnerability.cvssScore.toFixed(1) : '-';
     return [
       pickDisplayId(finding.vulnerability),
+      finding.risk ? String(finding.risk.score) : '-',
       finding.vulnerability.severity,
       cvss,
       `${finding.package.name}@${finding.package.version}`,
@@ -305,6 +306,29 @@ export function renderReachability(report: ScanReport): string {
       }
       const attribution = path.sinkAttribution === 'INITIALIZER' ? '  (in a field initializer)' : '';
       lines.push(`    => ${path.usage.symbol}${attribution}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+const signed = (weight: number): string => (weight > 0 ? `+${weight}` : String(weight));
+
+/** Phase 7 evidence: every finding's score broken down into the reasons that add up to it. */
+export function renderRisk(report: ScanReport): string {
+  const note = stageNote(report, 'RISK');
+  if (note) return `Risk: unavailable (${note})`;
+  const scored = [...report.findings].sort(compareFindings).filter((f) => f.risk);
+  if (scored.length === 0) return 'Risk: no findings';
+
+  const lines = [`Risk: ${scored.length} findings scored (rules ${scored[0]?.risk?.rulesVersion ?? '-'}), highest first`];
+  for (const finding of scored) {
+    const risk = finding.risk;
+    if (!risk) continue;
+    lines.push('', `${pickDisplayId(finding.vulnerability)}  ${finding.package.name}@${finding.package.version}  risk ${risk.score}`);
+    for (const reason of risk.reasons) {
+      const weight = reason.status === 'NOT_ANALYZED' ? '?' : signed(reason.weight);
+      const evidence = reason.evidence?.length ? `  [${reason.evidence.join('; ')}]` : '';
+      lines.push(`  ${weight.padStart(4)}  ${reason.description}${evidence}`);
     }
   }
   return lines.join('\n');

@@ -708,6 +708,53 @@ describe('api server', () => {
     expect(missing.statusCode).toBe(404);
   });
 
+  it('returns risk scores with their reasons and lists findings highest risk first', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      payload: { name: 'risk-demo', path: fixturePath('spring-vulnerable-used') },
+    });
+    const project = createRes.json() as { id: string };
+    const scan: ScanJob = {
+      id: randomUUID(),
+      projectId: project.id,
+      state: 'COMPLETED',
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      stages: [{ stage: 'RISK', status: 'SUCCEEDED' }],
+      unresolvedDependencies: [],
+      vulnerabilityCoverage: { checked: 2, notChecked: 0, failed: 0 },
+    };
+    await container.scanRepository.save(scan);
+    const finding = (id: string, severity: 'CRITICAL' | 'MEDIUM', score: number): VulnerabilityFinding => ({
+      vulnerability: { id, aliases: [], summary: id, severity, severitySource: 'DATABASE_SPECIFIC', modified: '2024-01-01T00:00:00Z', references: [] },
+      package: { ecosystem: 'Maven', name: `g:${id}`, version: '1', purl: `pkg:maven/g/${id}@1` },
+      fixedVersions: [],
+      evidence: { provider: 'OSV', queriedAt: '2026-11-22T00:00:00.000Z', affectedRanges: [], affectedVersions: [] },
+      risk: {
+        score,
+        rulesVersion: 'test',
+        reasons: [{ factor: 'CVSS_SEVERITY', status: 'APPLIED', weight: score, description: severity }],
+      },
+    });
+    await container.findingRepository.saveFindings(scan.id, [
+      finding('unused-critical', 'CRITICAL', 44),
+      finding('reachable-medium', 'MEDIUM', 66),
+    ]);
+
+    const res = await app.inject({ method: 'GET', url: `/api/projects/${project.id}/vulnerabilities` });
+    const body = res.json() as { findings: Array<{ vulnerabilityId: string; risk: { score: number; reasons: unknown[] } | null }> };
+    expect(body.findings.map((f) => [f.vulnerabilityId, f.risk?.score])).toEqual([
+      ['reachable-medium', 66],
+      ['unused-critical', 44],
+    ]);
+    expect(body.findings[0]?.risk).toEqual({
+      score: 66,
+      rulesVersion: 'test',
+      reasons: [{ factor: 'CVSS_SEVERITY', status: 'APPLIED', weight: 66, description: 'MEDIUM' }],
+    });
+  });
+
   it('GET /api/findings/:findingId/usages returns 404 for an unknown finding', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/findings/does-not-exist/usages' });
     expect(res.statusCode).toBe(404);

@@ -5,6 +5,7 @@ import {
   renderDependencies,
   renderEndpoints,
   renderReachability,
+  renderRisk,
   renderSourceUsage,
   renderSummary,
   renderVulnerabilities,
@@ -198,8 +199,8 @@ describe('renderVulnerabilityTable', () => {
     const report: ScanReport = { ...baseReport, findings: [finding] };
     expect(renderVulnerabilityTable(report)).toBe(
       [
-        'ID              Severity  CVSS  Dependency                           Used  Vuln API  Reachable  Fixed',
-        'CVE-2022-42889  CRITICAL  9.8   org.apache.commons:commons-text@1.9  -     -         -          1.10.0',
+        'ID              Risk  Severity  CVSS  Dependency                           Used  Vuln API  Reachable  Fixed',
+        'CVE-2022-42889  -     CRITICAL  9.8   org.apache.commons:commons-text@1.9  -     -         -          1.10.0',
       ].join('\n'),
     );
   });
@@ -214,9 +215,9 @@ describe('renderVulnerabilityTable', () => {
     };
     const report: ScanReport = { ...usageReport, findings: [{ ...finding, usage: usedUsage }, longFinding] };
     expect(renderVulnerabilityTable(report).split('\n')).toEqual([
-      'ID                   Severity  CVSS  Dependency                                          Used  Vuln API      Reachable  Fixed',
-      'CVE-2022-42889       CRITICAL  9.8   org.apache.commons:commons-text@1.9                 yes   used          -          1.10.0',
-      'GHSA-xxxx-yyyy-zzzz  HIGH      7.5   com.fasterxml.jackson.core:jackson-databind@2.15.2  no    not detected  -          2.18.8',
+      'ID                   Risk  Severity  CVSS  Dependency                                          Used  Vuln API      Reachable  Fixed',
+      'CVE-2022-42889       -     CRITICAL  9.8   org.apache.commons:commons-text@1.9                 yes   used          -          1.10.0',
+      'GHSA-xxxx-yyyy-zzzz  -     HIGH      7.5   com.fasterxml.jackson.core:jackson-databind@2.15.2  no    not detected  -          2.18.8',
     ]);
   });
 
@@ -485,5 +486,44 @@ describe('renderReachability', () => {
 
   it('says unavailable when the stage did not run', () => {
     expect(renderReachability(baseReport)).toBe('Reachability: unavailable (SKIPPED — not implemented (Phase 6))');
+  });
+});
+
+describe('renderRisk', () => {
+  const scoredReport: ScanReport = {
+    ...baseReport,
+    stages: baseReport.stages.map((s) => (s.stage === 'RISK' ? { stage: s.stage, status: 'SUCCEEDED' } : s)),
+    findings: [
+      {
+        ...finding,
+        risk: {
+          score: 44,
+          rulesVersion: 'r1',
+          reasons: [
+            { factor: 'CVSS_SEVERITY', status: 'APPLIED', weight: 39, description: 'CVSS v3 9.8 (CRITICAL)' },
+            { factor: 'SOURCE_USAGE', status: 'NOT_ANALYZED', weight: 0, description: 'source usage not analyzed' },
+            { factor: 'DIRECT_DEPENDENCY', status: 'APPLIED', weight: 5, description: 'direct dependency declared in pom.xml' },
+            { factor: 'KNOWN_EXPLOIT', status: 'APPLIED', weight: 0, description: 'no exploit evidence in OSV', evidence: ['x'] },
+          ],
+        },
+      },
+    ],
+  };
+
+  it('lists each reason with its signed weight, ? for what was not analyzed', () => {
+    expect(renderRisk(scoredReport).split('\n')).toEqual([
+      'Risk: 1 findings scored (rules r1), highest first',
+      '',
+      'CVE-2022-42889  org.apache.commons:commons-text@1.9  risk 44',
+      '   +39  CVSS v3 9.8 (CRITICAL)',
+      '     ?  source usage not analyzed',
+      '    +5  direct dependency declared in pom.xml',
+      '     0  no exploit evidence in OSV  [x]',
+    ]);
+    expect(renderVulnerabilityTable(scoredReport)).toContain('CVE-2022-42889  44    CRITICAL');
+  });
+
+  it('says unavailable when the stage did not run', () => {
+    expect(renderRisk(baseReport)).toBe('Risk: unavailable (SKIPPED — not implemented (Phase 7))');
   });
 });

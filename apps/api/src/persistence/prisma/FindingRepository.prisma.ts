@@ -12,6 +12,7 @@ import type {
   ReachabilityResult,
   ReachabilityScope,
   ReachabilityStatus,
+  RiskScore,
   Severity,
   SeveritySource,
   SourceSet,
@@ -83,6 +84,7 @@ const FINDING_INCLUDE = {
   projectDependency: { include: { dependency: true } },
   sourceUsages: { orderBy: [{ filePath: 'asc' }, { line: 'asc' }, { column: 'asc' }] },
   reachabilityPaths: { include: { endpoint: true }, orderBy: { position: 'asc' } },
+  riskScores: true,
 } satisfies Prisma.ProjectVulnerabilityInclude;
 
 /** Vulnerability findings are Phase 2 (CLAUDE.md §7); source usage evidence is Phase 4. */
@@ -193,6 +195,10 @@ export class PrismaFindingRepository implements FindingRepository {
           publishedAt: vulnerability.published ? new Date(vulnerability.published) : null,
           modifiedAt: new Date(vulnerability.modified),
           references: vulnerability.references as unknown as Prisma.InputJsonValue,
+          evidenceReferences:
+            vulnerability.evidenceReferences !== undefined
+              ? (vulnerability.evidenceReferences as unknown as Prisma.InputJsonValue)
+              : Prisma.DbNull,
         },
         update: {
           aliases: vulnerability.aliases,
@@ -205,6 +211,10 @@ export class PrismaFindingRepository implements FindingRepository {
           publishedAt: vulnerability.published ? new Date(vulnerability.published) : null,
           modifiedAt: new Date(vulnerability.modified),
           references: vulnerability.references as unknown as Prisma.InputJsonValue,
+          evidenceReferences:
+            vulnerability.evidenceReferences !== undefined
+              ? (vulnerability.evidenceReferences as unknown as Prisma.InputJsonValue)
+              : Prisma.DbNull,
         },
       });
 
@@ -258,6 +268,20 @@ export class PrismaFindingRepository implements FindingRepository {
             sourceSet: usage.sourceSet,
             vulnerableApi: usage.vulnerableApi,
           })),
+        });
+      }
+
+      await this.prisma.riskScore.deleteMany({ where: { projectVulnerabilityId: projectVulnerabilityRow.id } });
+      if (finding.risk) {
+        await this.prisma.riskScore.create({
+          data: {
+            id: randomUUID(),
+            scanId,
+            projectVulnerabilityId: projectVulnerabilityRow.id,
+            score: finding.risk.score,
+            reasons: finding.risk.reasons as unknown as Prisma.InputJsonValue,
+            rulesVersion: finding.risk.rulesVersion,
+          },
         });
       }
 
@@ -331,6 +355,7 @@ interface ProjectVulnerabilityRow {
   reachabilityStatus: string | null;
   reachabilityAnalysis: unknown;
   reachabilityPaths: { steps: unknown; usage: unknown; sinkAttribution: string; endpoint: SpringEndpointRow }[];
+  riskScores: { score: number; reasons: unknown; rulesVersion: string }[];
   vulnerability: {
     sourceId: string;
     aliases: string[];
@@ -343,6 +368,7 @@ interface ProjectVulnerabilityRow {
     publishedAt: Date | null;
     modifiedAt: Date;
     references: unknown;
+    evidenceReferences: unknown;
   };
   projectDependency: {
     dependency: { groupId: string; artifactId: string; version: string; purl: string };
@@ -404,6 +430,10 @@ function toReachability(row: ProjectVulnerabilityRow): ReachabilityResult | unde
 function toStoredFinding(row: ProjectVulnerabilityRow): StoredFinding {
   const usage = toFindingUsage(row, row.projectDependency.dependency.purl);
   const reachability = toReachability(row);
+  const riskRow = row.riskScores[0];
+  const risk: RiskScore | undefined = riskRow
+    ? { score: riskRow.score, reasons: riskRow.reasons as RiskScore['reasons'], rulesVersion: riskRow.rulesVersion }
+    : undefined;
   return {
     id: row.id,
     finding: {
@@ -419,6 +449,9 @@ function toStoredFinding(row: ProjectVulnerabilityRow): StoredFinding {
         published: row.vulnerability.publishedAt?.toISOString(),
         modified: row.vulnerability.modifiedAt.toISOString(),
         references: row.vulnerability.references as unknown as string[],
+        ...(Array.isArray(row.vulnerability.evidenceReferences)
+          ? { evidenceReferences: row.vulnerability.evidenceReferences as string[] }
+          : {}),
       },
       package: {
         ecosystem: 'Maven',
@@ -435,6 +468,7 @@ function toStoredFinding(row: ProjectVulnerabilityRow): StoredFinding {
       },
       ...(usage ? { usage } : {}),
       ...(reachability ? { reachability } : {}),
+      ...(risk ? { risk } : {}),
     },
   };
 }
