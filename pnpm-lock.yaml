@@ -156,6 +156,9 @@ importers:
       '@vulntrace/shared':
         specifier: workspace:*
         version: link:../shared
+      '@vulntrace/source-analyzer':
+        specifier: workspace:*
+        version: link:../source-analyzer
 
   packages/repository-source:
     dependencies:

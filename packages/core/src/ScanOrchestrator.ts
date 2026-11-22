@@ -27,6 +27,8 @@ import type {
   SkippedJavaFile,
 } from '@vulntrace/source-analyzer';
 import { SpringEndpointAnalyzer } from '@vulntrace/spring-analyzer';
+import { ReachabilityAnalyzer } from '@vulntrace/reachability';
+import type { CallGraphStats } from '@vulntrace/reachability';
 import type { ScanLogger } from './logging/ScanLogger.js';
 
 export interface ScanOptions extends DependencyAnalysisOptions {
@@ -69,6 +71,8 @@ export interface ScanReport {
   sourceAnalysis?: SourceAnalysisSummary;
   /** Phase 5: empty unless the SPRING_ENDPOINT stage succeeded — check `stages` before reading "none". */
   endpoints: SpringEndpoint[];
+  /** Phase 6: size of the call graph the REACHABILITY stage searched; absent when it did not run. */
+  callGraph?: CallGraphStats;
   warnings: string[];
 }
 
@@ -79,15 +83,14 @@ export interface ScanOrchestratorDeps {
   sourceAnalyzer: JavaSourceAnalyzer;
   /** Defaults to the static Spring MVC annotation analyzer. */
   springEndpointAnalyzer?: Pick<SpringEndpointAnalyzer, 'analyze'>;
+  /** Defaults to the Stage A call-graph search. */
+  reachabilityAnalyzer?: Pick<ReachabilityAnalyzer, 'analyze'>;
   logger: ScanLogger;
   now?: () => Date;
 }
 
 /** Stages not wired into the pipeline yet, with the phase that introduces them. */
-const PENDING_STAGES: ReadonlyArray<readonly [ScanStage, string]> = [
-  ['REACHABILITY', 'Phase 6'],
-  ['RISK', 'Phase 7'],
-];
+const PENDING_STAGES: ReadonlyArray<readonly [ScanStage, string]> = [['RISK', 'Phase 7']];
 
 const PROJECT_DETECTION_ERROR_CODES = new Set(['PROJECT_NOT_FOUND', 'UNSUPPORTED_PROJECT']);
 
@@ -136,6 +139,7 @@ export class ScanOrchestrator {
     let sourceAnalysis: SourceAnalysisSummary | undefined;
     let javaAnalysis: JavaAnalysisResult | undefined;
     let endpoints: SpringEndpoint[] = [];
+    let callGraph: CallGraphStats | undefined;
 
     logger.info('SCAN', `scan started: ${projectPath}`);
 
@@ -277,6 +281,19 @@ export class ScanOrchestrator {
       warnings.push(...spring.warnings);
     }
 
+    const springSucceeded = stages.some((s) => s.stage === 'SPRING_ENDPOINT' && s.status === 'SUCCEEDED');
+    if (!javaAnalysis) {
+      stages.push({ stage: 'REACHABILITY', status: 'SKIPPED', reason: 'Java source analysis not available' });
+    } else if (!springSucceeded) {
+      stages.push({ stage: 'REACHABILITY', status: 'SKIPPED', reason: 'Spring endpoints not available' });
+    } else {
+      const reachability = this.analyzeReachability(javaAnalysis, endpoints, findings);
+      stages.push(reachability.stage);
+      findings = reachability.findings;
+      callGraph = reachability.callGraph;
+      warnings.push(...reachability.warnings);
+    }
+
     for (const [stage, phase] of PENDING_STAGES) {
       stages.push({ stage, status: 'SKIPPED', reason: `not implemented (${phase})` });
     }
@@ -298,8 +315,41 @@ export class ScanOrchestrator {
       vulnerabilityCoverage,
       sourceAnalysis,
       endpoints,
+      ...(callGraph ? { callGraph } : {}),
       warnings,
     };
+  }
+
+  /**
+   * REACHABILITY (Phase 6): call paths from endpoint handlers to vulnerable API usages, attached
+   * to each finding that has a Phase 4 usage result. A failure keeps every earlier result.
+   */
+  private analyzeReachability(
+    javaAnalysis: JavaAnalysisResult,
+    endpoints: readonly SpringEndpoint[],
+    findings: readonly VulnerabilityFinding[],
+  ): { stage: ScanStageResult; findings: VulnerabilityFinding[]; callGraph?: CallGraphStats; warnings: string[] } {
+    const { logger } = this.deps;
+    const analyzer = this.deps.reachabilityAnalyzer ?? new ReachabilityAnalyzer();
+    try {
+      const { results, graph, warnings } = analyzer.analyze({ java: javaAnalysis, endpoints, findings });
+      const updated = findings.map((finding, i): VulnerabilityFinding => {
+        const reachability = results[i];
+        return reachability ? { ...finding, reachability } : finding;
+      });
+      const reachable = updated.filter((f) => f.reachability?.reachable).length;
+      const notReachable = updated.filter((f) => f.reachability?.status === 'NOT_REACHABLE').length;
+      logger.info(
+        'REACHABILITY',
+        `call graph: ${graph.methodCount} methods, ${graph.edgeCount} calls, ${graph.unresolvedCallCount} unresolved`,
+      );
+      logger.info('REACHABILITY', `${reachable} reachable findings, ${notReachable} used but no path found`);
+      return { stage: { stage: 'REACHABILITY', status: 'SUCCEEDED' }, findings: updated, callGraph: graph, warnings };
+    } catch (cause) {
+      const reason = `reachability analysis threw: ${cause instanceof Error ? cause.message : String(cause)}`;
+      logger.error('REACHABILITY', reason);
+      return { stage: { stage: 'REACHABILITY', status: 'FAILED', reason }, findings: [...findings], warnings: [] };
+    }
   }
 
   /**

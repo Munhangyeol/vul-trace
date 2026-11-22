@@ -18,6 +18,8 @@ export interface ProjectScanSummaryDto {
   bySeverity: Record<Severity, number>;
   /** Distinct vulnerabilities used by MAIN sources; null when source usage was not analyzed. */
   usedVulnerabilities: number | null;
+  /** Distinct vulnerabilities reachable from a Spring endpoint; null when reachability was not analyzed. */
+  reachableVulnerabilities: number | null;
   /** Spring endpoints found; null unless the SPRING_ENDPOINT stage succeeded. */
   endpoints: number | null;
   coverage: VulnerabilityCoverage;

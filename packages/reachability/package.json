@@ -13,5 +13,5 @@
   "scripts": {
     "build": "tsc -b"
   },
-  "dependencies": { "@vulntrace/shared": "workspace:*" }
+  "dependencies": { "@vulntrace/shared": "workspace:*", "@vulntrace/source-analyzer": "workspace:*" }
 }

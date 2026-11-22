@@ -1,15 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient, SpringEndpoint as SpringEndpointRow } from '@prisma/client';
 import type {
   AffectedRange,
+  CallPath,
+  CallPathStep,
   DependencySource,
   FindingUsage,
   PackageMapping,
   ProjectDependency,
+  ReachabilityResult,
+  ReachabilityScope,
+  ReachabilityStatus,
   Severity,
   SeveritySource,
   SourceSet,
+  SinkAttribution,
   SourceUsage,
   UsageKind,
   ViaApiEvidence,
@@ -18,6 +24,7 @@ import type {
   VulnerableApiStatus,
 } from '@vulntrace/shared';
 import type { FindingRepository, StoredFinding } from '@vulntrace/core';
+import { endpointKey, toSpringEndpoint } from './EndpointRepository.prisma.js';
 
 function isDependencySourceKind(value: string): value is DependencySource['kind'] {
   return value === 'pom.xml' || value === 'dependency-tree';
@@ -48,10 +55,34 @@ function usageColumns(usage: FindingUsage | undefined) {
   };
 }
 
+/** Stored in `project_vulnerabilities.reachability_analysis` — the basis for `reachability_status`. */
+interface ReachabilityAnalysisJson {
+  reason?: string;
+  totalPaths: number;
+  truncated: boolean;
+  scope: ReachabilityScope;
+}
+
+/** Phase 6 columns on project_vulnerabilities; null when reachability was not analyzed. */
+function reachabilityColumns(reachability: ReachabilityResult | undefined) {
+  if (!reachability) return { reachabilityStatus: null, reachabilityAnalysis: Prisma.DbNull };
+  const analysis: ReachabilityAnalysisJson = {
+    ...(reachability.reason ? { reason: reachability.reason } : {}),
+    totalPaths: reachability.totalPaths,
+    truncated: reachability.truncated,
+    scope: reachability.scope,
+  };
+  return {
+    reachabilityStatus: reachability.status,
+    reachabilityAnalysis: analysis as unknown as Prisma.InputJsonValue,
+  };
+}
+
 const FINDING_INCLUDE = {
   vulnerability: true,
   projectDependency: { include: { dependency: true } },
   sourceUsages: { orderBy: [{ filePath: 'asc' }, { line: 'asc' }, { column: 'asc' }] },
+  reachabilityPaths: { include: { endpoint: true }, orderBy: { position: 'asc' } },
 } satisfies Prisma.ProjectVulnerabilityInclude;
 
 /** Vulnerability findings are Phase 2 (CLAUDE.md §7); source usage evidence is Phase 4. */
@@ -122,7 +153,13 @@ export class PrismaFindingRepository implements FindingRepository {
     }));
   }
 
+  /** Call `EndpointRepository.saveEndpoints` first: reachability paths reference the stored endpoints. */
   async saveFindings(scanId: string, findings: VulnerabilityFinding[]): Promise<void> {
+    const endpointRows = findings.some((f) => (f.reachability?.paths.length ?? 0) > 0)
+      ? await this.prisma.springEndpoint.findMany({ where: { scanId } })
+      : [];
+    const endpointIds = new Map(endpointRows.map((row) => [endpointKey(toSpringEndpoint(row)), row.id]));
+
     for (const finding of findings) {
       const { vulnerability, package: pkg, fixedVersions, evidence } = finding;
 
@@ -189,6 +226,7 @@ export class PrismaFindingRepository implements FindingRepository {
           affectedRanges: evidence.affectedRanges as unknown as Prisma.InputJsonValue,
           affectedVersions: evidence.affectedVersions,
           ...usageColumns(finding.usage),
+          ...reachabilityColumns(finding.reachability),
         },
         update: {
           fixedVersions,
@@ -197,6 +235,7 @@ export class PrismaFindingRepository implements FindingRepository {
           affectedRanges: evidence.affectedRanges as unknown as Prisma.InputJsonValue,
           affectedVersions: evidence.affectedVersions,
           ...usageColumns(finding.usage),
+          ...reachabilityColumns(finding.reachability),
         },
       });
 
@@ -219,6 +258,33 @@ export class PrismaFindingRepository implements FindingRepository {
             sourceSet: usage.sourceSet,
             vulnerableApi: usage.vulnerableApi,
           })),
+        });
+      }
+
+      await this.prisma.reachabilityPath.deleteMany({
+        where: { projectVulnerabilityId: projectVulnerabilityRow.id },
+      });
+      const paths = finding.reachability?.paths ?? [];
+      if (paths.length > 0) {
+        await this.prisma.reachabilityPath.createMany({
+          data: paths.map((path, position) => {
+            const endpointId = endpointIds.get(endpointKey(path.endpoint));
+            if (!endpointId) {
+              throw new Error(
+                `Cannot save reachability path of ${vulnerability.id}: endpoint ${path.endpoint.httpMethod} ${path.endpoint.path} was not saved first (call saveEndpoints before saveFindings)`,
+              );
+            }
+            return {
+              id: randomUUID(),
+              scanId,
+              projectVulnerabilityId: projectVulnerabilityRow.id,
+              endpointId,
+              steps: path.steps as unknown as Prisma.InputJsonValue,
+              usage: path.usage as unknown as Prisma.InputJsonValue,
+              sinkAttribution: path.sinkAttribution,
+              position,
+            };
+          }),
         });
       }
     }
@@ -262,6 +328,9 @@ interface ProjectVulnerabilityRow {
   vulnerableApiStatus: string | null;
   usageAnalysis: unknown;
   sourceUsages: SourceUsageRow[];
+  reachabilityStatus: string | null;
+  reachabilityAnalysis: unknown;
+  reachabilityPaths: { steps: unknown; usage: unknown; sinkAttribution: string; endpoint: SpringEndpointRow }[];
   vulnerability: {
     sourceId: string;
     aliases: string[];
@@ -309,8 +378,32 @@ function toFindingUsage(row: ProjectVulnerabilityRow, purl: string): FindingUsag
   };
 }
 
+function toReachability(row: ProjectVulnerabilityRow): ReachabilityResult | undefined {
+  if (row.reachabilityStatus === null || row.reachabilityAnalysis === null) return undefined;
+  const analysis = row.reachabilityAnalysis as ReachabilityAnalysisJson;
+  const status = row.reachabilityStatus as ReachabilityStatus;
+  const paths = row.reachabilityPaths.map(
+    (path): CallPath => ({
+      endpoint: toSpringEndpoint(path.endpoint),
+      steps: path.steps as CallPathStep[],
+      usage: path.usage as SourceUsage,
+      sinkAttribution: path.sinkAttribution as SinkAttribution,
+    }),
+  );
+  return {
+    status,
+    reachable: status === 'REACHABLE',
+    paths,
+    totalPaths: analysis.totalPaths,
+    truncated: analysis.truncated,
+    ...(analysis.reason ? { reason: analysis.reason } : {}),
+    scope: analysis.scope,
+  };
+}
+
 function toStoredFinding(row: ProjectVulnerabilityRow): StoredFinding {
   const usage = toFindingUsage(row, row.projectDependency.dependency.purl);
+  const reachability = toReachability(row);
   return {
     id: row.id,
     finding: {
@@ -341,6 +434,7 @@ function toStoredFinding(row: ProjectVulnerabilityRow): StoredFinding {
         affectedVersions: row.affectedVersions,
       },
       ...(usage ? { usage } : {}),
+      ...(reachability ? { reachability } : {}),
     },
   };
 }

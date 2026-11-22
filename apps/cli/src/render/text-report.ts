@@ -1,7 +1,13 @@
 import { basename } from 'node:path';
 import { compareFindings, pickDisplayId, summarizeScan } from '@vulntrace/core';
 import type { ScanReport } from '@vulntrace/core';
-import type { FindingUsage, ScanStage, VulnerabilityFinding } from '@vulntrace/shared';
+import type {
+  FindingUsage,
+  ReachabilityStatus,
+  ScanStage,
+  SourceLocation,
+  VulnerabilityFinding,
+} from '@vulntrace/shared';
 
 function stageNote(report: ScanReport, stage: ScanStage): string | undefined {
   const result = report.stages.find((s) => s.stage === stage);
@@ -39,6 +45,9 @@ export function renderSummary(report: ScanReport): string {
         summary.usedVulnerabilities ?? `unavailable (${stageNote(report, 'SOURCE_USAGE') ?? 'not analyzed'})`
       }`,
       `${'Endpoints:'.padEnd(SUMMARY_LABEL_WIDTH)}${endpointCount(report)}`,
+      `${'Reachable:'.padEnd(SUMMARY_LABEL_WIDTH)}${
+        summary.reachableVulnerabilities ?? `unavailable (${stageNote(report, 'REACHABILITY') ?? 'not analyzed'})`
+      }`,
     );
 
     const vulnerabilityNote = stageNote(report, 'VULNERABILITY');
@@ -74,7 +83,18 @@ function vulnerableApiLabel(finding: VulnerabilityFinding): string {
   return finding.usage ? VULNERABLE_API_LABEL[finding.usage.vulnerableApi] : '-';
 }
 
-const TABLE_HEADER = ['ID', 'Severity', 'CVSS', 'Dependency', 'Used', 'Vuln API', 'Fixed'] as const;
+const REACHABILITY_LABEL: Record<ReachabilityStatus, string> = {
+  REACHABLE: 'yes',
+  NOT_REACHABLE: 'no path',
+  NO_VULNERABLE_API_USAGE: 'no',
+  NO_API_INFO: 'no info',
+};
+
+function reachableLabel(finding: VulnerabilityFinding): string {
+  return finding.reachability ? REACHABILITY_LABEL[finding.reachability.status] : '-';
+}
+
+const TABLE_HEADER = ['ID', 'Severity', 'CVSS', 'Dependency', 'Used', 'Vuln API', 'Reachable', 'Fixed'] as const;
 const COLUMN_GAP = '  ';
 
 /** Pads every column but the last to its widest cell so long values never shift later columns. */
@@ -100,6 +120,7 @@ export function renderVulnerabilityTable(report: ScanReport): string {
       `${finding.package.name}@${finding.package.version}`,
       usedLabel(finding),
       vulnerableApiLabel(finding),
+      reachableLabel(finding),
       finding.fixedVersions.length > 0 ? finding.fixedVersions.join(', ') : 'no fix',
     ];
   });
@@ -243,5 +264,48 @@ export function renderEndpoints(report: ScanReport): string {
     const unresolved = report.endpoints[i]?.unresolved ?? [];
     if (unresolved.length > 0) lines.push(`    unresolved: ${unresolved.join(', ')}`);
   });
+  return lines.join('\n');
+}
+
+const at = (location: SourceLocation): string => `${location.filePath}:${location.line}`;
+
+/** Phase 6 evidence: for every finding with vulnerable API usage, the call paths from endpoints. */
+export function renderReachability(report: ScanReport): string {
+  const note = stageNote(report, 'REACHABILITY');
+  if (note) return `Reachability: unavailable (${note})`;
+  const lines = [
+    report.callGraph
+      ? `Reachability: call graph of ${report.callGraph.methodCount} methods, ${report.callGraph.edgeCount} calls, ${report.callGraph.unresolvedCallCount} unresolved`
+      : 'Reachability:',
+  ];
+
+  for (const finding of [...report.findings].sort(compareFindings)) {
+    const reachability = finding.reachability;
+    if (!reachability || reachability.status === 'NO_VULNERABLE_API_USAGE' || reachability.status === 'NO_API_INFO') {
+      continue;
+    }
+    const header = `${pickDisplayId(finding.vulnerability)}  ${finding.package.name}@${finding.package.version}`;
+    if (!reachability.reachable) {
+      const { visitedMethodCount, unresolvedCallCount } = reachability.scope;
+      lines.push(
+        '',
+        `${header}  not reachable (${reachability.reason ?? 'no path found'})`,
+        `  searched ${visitedMethodCount} methods from ${reachability.scope.endpointCount} endpoints; ${unresolvedCallCount} calls could not be resolved — not proof of absence`,
+      );
+      continue;
+    }
+    const shown = reachability.truncated ? ` (showing ${reachability.paths.length})` : '';
+    lines.push('', `${header}  reachable, ${reachability.totalPaths} path(s)${shown}`);
+    for (const path of reachability.paths) {
+      lines.push(`  ${path.endpoint.httpMethod} ${path.endpoint.path}`);
+      for (const step of path.steps) {
+        const basis = step.basis && step.basis !== 'DIRECT' ? `  [${step.basis.toLowerCase().replace(/_/g, ' ')}]` : '';
+        lines.push(`    -> ${step.method.className}#${step.method.methodName}${basis}`);
+        if (step.callSite) lines.push(`         ${at(step.callSite)}  ${step.callSnippet ?? ''}`.trimEnd());
+      }
+      const attribution = path.sinkAttribution === 'INITIALIZER' ? '  (in a field initializer)' : '';
+      lines.push(`    => ${path.usage.symbol}${attribution}`);
+    }
+  }
   return lines.join('\n');
 }

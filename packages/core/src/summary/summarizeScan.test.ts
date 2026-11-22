@@ -58,6 +58,7 @@ describe('summarizeScan', () => {
       findings: 0,
       vulnerableDependencies: 0,
       usedVulnerabilities: 0,
+      reachableVulnerabilities: 0,
       bySeverity: { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, UNKNOWN: 0 },
       coverage: { checked: 1, notChecked: 1, failed: 0 },
     });
@@ -120,5 +121,21 @@ describe('summarizeScan', () => {
       vulnerabilityCoverage: { checked: 2, notChecked: 0, failed: 0 },
     });
     expect(summary.usedVulnerabilities).toBe(1);
+  });
+
+  it('counts distinct reachable vulnerabilities, or null when reachability was not analyzed', () => {
+    const reachability = (reachable: boolean): NonNullable<VulnerabilityFinding['reachability']> => ({
+      status: reachable ? 'REACHABLE' : 'NOT_REACHABLE',
+      reachable,
+      paths: [],
+      totalPaths: 0,
+      truncated: false,
+      scope: { endpointCount: 1, visitedMethodCount: 1, unresolvedCallCount: 0, unsupported: [] },
+    });
+    const reachable = { ...finding(), reachability: reachability(true) };
+    const notReachable = { ...finding({ id: 'CVE-2021-1', aliases: [] }), reachability: reachability(false) };
+    const input = { dependencies: [], unresolvedDependencies: [], vulnerabilityCoverage: { checked: 1, notChecked: 0, failed: 0 } };
+    expect(summarizeScan({ ...input, findings: [reachable, reachable, notReachable] }).reachableVulnerabilities).toBe(1);
+    expect(summarizeScan({ ...input, findings: [reachable, finding()] }).reachableVulnerabilities).toBeNull();
   });
 });

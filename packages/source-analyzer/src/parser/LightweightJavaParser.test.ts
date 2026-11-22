@@ -190,3 +190,70 @@ describe('LightweightJavaParser — references', () => {
     expect(result.invocations).toEqual([]);
   });
 });
+
+describe('LightweightJavaParser — members for call resolution (Phase 6)', () => {
+  const source = [
+    'package com.example;', // 1
+    'public class OrderController extends BaseController implements Api, Other<String> {', // 2
+    '  private final OrderService orderService;', // 3
+    '  private Map<String, List<Item>> cache = new HashMap<>();', // 4
+    '  public OrderController(OrderService orderService) {', // 5
+    '    this.orderService = orderService;', // 6
+    '  }', // 7
+    '  public String place(@RequestBody final Order order, int[] counts, String... tags) {', // 8
+    '    Runnable r = () -> audit(order);', // 9
+    '    return orderService.place(order, counts.length);', // 10
+    '  }', // 11
+    '  abstract void hook();', // 12
+    '  static class Inner { void x() { helper(); } }', // 13
+    '}', // 14
+  ].join('\n');
+  const result = parse(source);
+  const outer = result.types.find((t) => t.name === 'OrderController');
+  const inner = result.types.find((t) => t.name === 'Inner');
+
+  it('reads extends / implements without type arguments', () => {
+    expect(outer?.extendsTypes).toEqual(['BaseController']);
+    expect(outer?.implementsTypes).toEqual(['Api', 'Other']);
+    expect(inner?.extendsTypes).toEqual([]);
+  });
+
+  it('records member-level fields only', () => {
+    expect(outer?.fields.map((f) => [f.typeName, f.name, f.location.line])).toEqual([
+      ['OrderService', 'orderService', 3],
+      ['Map', 'cache', 4],
+    ]);
+  });
+
+  it('records constructors, parameters, bodies and ranges', () => {
+    expect(outer?.methods.map((m) => [m.name, m.isConstructor, m.hasBody, m.range.start.line, m.range.end.line])).toEqual([
+      ['OrderController', true, true, 5, 7],
+      ['place', false, true, 8, 11],
+      ['hook', false, false, 12, 12],
+    ]);
+    expect(outer?.methods[1]?.parameters.map((p) => [p.typeName, p.name])).toEqual([
+      ['Order', 'order'],
+      ['int', 'counts'],
+      ['String', 'tags'],
+    ]);
+    expect(outer?.range).toMatchObject({ start: { line: 2 }, end: { line: 14 } });
+  });
+
+  it('gives references the method that contains them, lambdas included', () => {
+    const scopeOf = (name: string) => result.invocations.find((i) => i.name === name)?.scope;
+    expect(scopeOf('audit')).toEqual({ typeQualifiedName: 'com.example.OrderController', methodIndex: 1 });
+    expect(scopeOf('place')).toEqual({ typeQualifiedName: 'com.example.OrderController', methodIndex: 1 });
+    expect(scopeOf('helper')).toEqual({ typeQualifiedName: 'com.example.OrderController.Inner', methodIndex: 0 });
+    expect(result.objectCreations.find((c) => c.typeName === 'HashMap')?.scope).toEqual({
+      typeQualifiedName: 'com.example.OrderController',
+    });
+    expect(result.variables.find((v) => v.name === 'order')?.scope?.methodIndex).toBe(1);
+  });
+
+  it('counts top-level call arguments', () => {
+    const argsOf = (name: string) => result.invocations.find((i) => i.name === name)?.argumentCount;
+    expect(argsOf('place')).toBe(2);
+    expect(argsOf('helper')).toBe(0);
+    expect(argsOf('audit')).toBe(1);
+  });
+});

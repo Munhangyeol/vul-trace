@@ -172,6 +172,23 @@ section > form {
   padding: var(--space-4) var(--space-5);
 }
 
+/* Reachability call path: one numbered step per method, call site underneath */
+
+.call-path {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.call-path ol {
+  margin: 0;
+  padding-left: var(--space-5);
+}
+
+.call-path li {
+  margin-bottom: var(--space-2);
+}
+
 /* Tables */
 
 .table-wrap {

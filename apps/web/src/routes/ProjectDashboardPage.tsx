@@ -4,7 +4,7 @@ import { useProjectSummary, useRunScan } from '../api/queries';
 import { formatDate } from '../format/date';
 import { formatCommitSha, formatProjectSource } from '../format/source';
 
-const NOT_ANALYZED_TITLE = 'Not analyzed yet — see CLAUDE.md Phase 6 (reachable)';
+const REACHABILITY_NOT_ANALYZED_TITLE = 'Reachability was not analyzed for this scan';
 const USAGE_NOT_ANALYZED_TITLE = 'Source usage was not analyzed for this scan';
 const ENDPOINTS_NOT_ANALYZED_TITLE = 'Spring endpoints were not analyzed for this scan';
 
@@ -81,7 +81,13 @@ export function ProjectDashboardPage() {
         </div>
         <div>
           <dt>Reachable Vulnerabilities</dt>
-          <dd title={NOT_ANALYZED_TITLE}>—</dd>
+          <dd
+            title={
+              scan && scan.reachableVulnerabilities === null ? REACHABILITY_NOT_ANALYZED_TITLE : undefined
+            }
+          >
+            {scan?.reachableVulnerabilities ?? '—'}
+          </dd>
         </div>
       </dl>
 

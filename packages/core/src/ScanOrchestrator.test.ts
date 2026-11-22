@@ -356,7 +356,13 @@ describe('ScanOrchestrator.run', () => {
       const report = await orchestrator.run('/project');
 
       expect(report.state).toBe('PARTIAL');
-      expect(report.findings).toEqual([{ ...finding, usage: expect.objectContaining({ used: false }) }]);
+      expect(report.findings).toEqual([
+        {
+          ...finding,
+          usage: expect.objectContaining({ used: false }),
+          reachability: expect.objectContaining({ status: 'NO_VULNERABLE_API_USAGE', reachable: false }),
+        },
+      ]);
       expect(report.vulnerabilityCoverage).toEqual({ checked: 1, notChecked: 0, failed: 1 });
       expect(report.stages).toContainEqual({
         stage: 'VULNERABILITY',
@@ -397,7 +403,13 @@ describe('ScanOrchestrator.run', () => {
       expect(report.state).toBe('COMPLETED');
       expect(report.stages).toContainEqual({ stage: 'SBOM', status: 'SUCCEEDED' });
       expect(report.stages).toContainEqual({ stage: 'VULNERABILITY', status: 'SUCCEEDED' });
-      expect(report.findings).toEqual([{ ...finding, usage: expect.objectContaining({ used: false }) }]);
+      expect(report.findings).toEqual([
+        {
+          ...finding,
+          usage: expect.objectContaining({ used: false }),
+          reachability: expect.objectContaining({ status: 'NO_VULNERABLE_API_USAGE', reachable: false }),
+        },
+      ]);
       expect(report.vulnerabilityCoverage).toEqual({ checked: 1, notChecked: 0, failed: 0 });
     });
   });
@@ -607,6 +619,62 @@ describe('ScanOrchestrator.run', () => {
       });
       expect(report.stages).toContainEqual({ stage: 'SOURCE_USAGE', status: 'SUCCEEDED' });
       expect(report.endpoints).toEqual([]);
+      expect(report.stages).toContainEqual({
+        stage: 'REACHABILITY',
+        status: 'SKIPPED',
+        reason: 'Spring endpoints not available',
+      });
+    });
+  });
+
+  describe('REACHABILITY stage', () => {
+    const orchestratorWith = (deps: Partial<ConstructorParameters<typeof ScanOrchestrator>[0]>) =>
+      new ScanOrchestrator({
+        dependencyAnalyzer: fakeAnalyzer(async () => ok(analysisResult())),
+        sbomBuilder: unusedSbomBuilder,
+        vulnerabilityProvider: unusedVulnerabilityProvider,
+        sourceAnalyzer: fakeSourceAnalyzer(async (p) => ok({ projectPath: p, files: [], skippedFiles: [], warnings: [] })),
+        logger: silentScanLogger,
+        ...deps,
+      });
+
+    it('records SUCCEEDED with call graph size once endpoints are known', async () => {
+      const report = await orchestratorWith({}).run('/project');
+
+      expect(report.stages).toContainEqual({ stage: 'REACHABILITY', status: 'SUCCEEDED' });
+      expect(report.callGraph).toEqual({ methodCount: 0, edgeCount: 0, unresolvedCallCount: 0 });
+      expect(report.stages).toContainEqual({ stage: 'RISK', status: 'SKIPPED', reason: 'not implemented (Phase 7)' });
+    });
+
+    it('is SKIPPED when source analysis failed', async () => {
+      const report = await orchestratorWith({
+        sourceAnalyzer: fakeSourceAnalyzer(async () => err(new AnalysisError('PROJECT_NOT_FOUND', 'gone'))),
+      }).run('/project');
+
+      expect(report.stages).toContainEqual({
+        stage: 'REACHABILITY',
+        status: 'SKIPPED',
+        reason: 'Java source analysis not available',
+      });
+      expect(report.callGraph).toBeUndefined();
+    });
+
+    it('records a thrown analyzer error as FAILED and keeps earlier results', async () => {
+      const report = await orchestratorWith({
+        reachabilityAnalyzer: {
+          analyze: () => {
+            throw new Error('boom');
+          },
+        },
+      }).run('/project');
+
+      expect(report.state).toBe('PARTIAL');
+      expect(report.stages).toContainEqual({
+        stage: 'REACHABILITY',
+        status: 'FAILED',
+        reason: 'reachability analysis threw: boom',
+      });
+      expect(report.stages).toContainEqual({ stage: 'SPRING_ENDPOINT', status: 'SUCCEEDED' });
     });
   });
 });

@@ -4,6 +4,7 @@ import type { FindingUsage, VulnerabilityFinding } from '@vulntrace/shared';
 import {
   renderDependencies,
   renderEndpoints,
+  renderReachability,
   renderSourceUsage,
   renderSummary,
   renderVulnerabilities,
@@ -134,6 +135,7 @@ describe('renderSummary', () => {
         'High:              0',
         'Used by source:    unavailable (SKIPPED — not implemented (Phase 4))',
         'Endpoints:         unavailable (SKIPPED — not implemented (Phase 5))',
+        'Reachable:         unavailable (SKIPPED — not implemented (Phase 6))',
       ].join('\n'),
     );
   });
@@ -196,8 +198,8 @@ describe('renderVulnerabilityTable', () => {
     const report: ScanReport = { ...baseReport, findings: [finding] };
     expect(renderVulnerabilityTable(report)).toBe(
       [
-        'ID              Severity  CVSS  Dependency                           Used  Vuln API  Fixed',
-        'CVE-2022-42889  CRITICAL  9.8   org.apache.commons:commons-text@1.9  -     -         1.10.0',
+        'ID              Severity  CVSS  Dependency                           Used  Vuln API  Reachable  Fixed',
+        'CVE-2022-42889  CRITICAL  9.8   org.apache.commons:commons-text@1.9  -     -         -          1.10.0',
       ].join('\n'),
     );
   });
@@ -212,9 +214,9 @@ describe('renderVulnerabilityTable', () => {
     };
     const report: ScanReport = { ...usageReport, findings: [{ ...finding, usage: usedUsage }, longFinding] };
     expect(renderVulnerabilityTable(report).split('\n')).toEqual([
-      'ID                   Severity  CVSS  Dependency                                          Used  Vuln API      Fixed',
-      'CVE-2022-42889       CRITICAL  9.8   org.apache.commons:commons-text@1.9                 yes   used          1.10.0',
-      'GHSA-xxxx-yyyy-zzzz  HIGH      7.5   com.fasterxml.jackson.core:jackson-databind@2.15.2  no    not detected  2.18.8',
+      'ID                   Severity  CVSS  Dependency                                          Used  Vuln API      Reachable  Fixed',
+      'CVE-2022-42889       CRITICAL  9.8   org.apache.commons:commons-text@1.9                 yes   used          -          1.10.0',
+      'GHSA-xxxx-yyyy-zzzz  HIGH      7.5   com.fasterxml.jackson.core:jackson-databind@2.15.2  no    not detected  -          2.18.8',
     ]);
   });
 
@@ -381,5 +383,107 @@ describe('renderEndpoints', () => {
     expect(renderEndpoints(baseReport)).toBe(
       'Spring endpoints: unavailable (SKIPPED — not implemented (Phase 5))',
     );
+  });
+});
+
+describe('renderReachability', () => {
+  const handler = 'src/main/java/com/example/demo/TemplateController.java';
+  const service = 'src/main/java/com/example/demo/TemplateService.java';
+  const usage = usedUsage.usages.find((u) => u.vulnerableApi) ?? usedUsage.usages[0]!;
+  const scope = { endpointCount: 2, visitedMethodCount: 3, unresolvedCallCount: 1, unsupported: [] };
+  const reachableReport: ScanReport = {
+    ...usageReport,
+    stages: usageReport.stages.map((s) => (s.stage === 'REACHABILITY' ? { stage: s.stage, status: 'SUCCEEDED' } : s)),
+    callGraph: { methodCount: 8, edgeCount: 1, unresolvedCallCount: 1 },
+    findings: [
+      {
+        ...finding,
+        usage: usedUsage,
+        reachability: {
+          status: 'REACHABLE',
+          reachable: true,
+          totalPaths: 1,
+          truncated: false,
+          scope,
+          paths: [
+            {
+              endpoint: {
+                httpMethod: 'POST',
+                path: '/api/templates/render',
+                controllerClass: 'com.example.demo.TemplateController',
+                controllerMethod: 'render',
+                location: { filePath: handler, line: 19 },
+                unresolved: [],
+                evidence: {
+                  controller: { annotation: '@RestController', location: { filePath: handler, line: 8 } },
+                  methodMapping: { annotation: '@PostMapping("/render")', location: { filePath: handler, line: 18 } },
+                },
+              },
+              usage,
+              sinkAttribution: 'METHOD',
+              steps: [
+                {
+                  method: { className: 'com.example.demo.TemplateController', methodName: 'render' },
+                  callSite: { filePath: handler, line: 20 },
+                  callSnippet: 'return templateService.render(template);',
+                },
+                {
+                  method: { className: 'com.example.demo.TemplateService', methodName: 'render' },
+                  callSite: { filePath: service, line: 14 },
+                  callSnippet: 'StringSubstitutor.createInterpolator();',
+                  basis: 'INTERFACE_DISPATCH',
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+  };
+
+  it('prints each path from the endpoint to the vulnerable call with call sites', () => {
+    expect(renderReachability(reachableReport).split('\n')).toEqual([
+      'Reachability: call graph of 8 methods, 1 calls, 1 unresolved',
+      '',
+      'CVE-2022-42889  org.apache.commons:commons-text@1.9  reachable, 1 path(s)',
+      '  POST /api/templates/render',
+      '    -> com.example.demo.TemplateController#render',
+      `         ${handler}:20  return templateService.render(template);`,
+      '    -> com.example.demo.TemplateService#render  [interface dispatch]',
+      `         ${service}:14  StringSubstitutor.createInterpolator();`,
+      `    => ${usage.symbol}`,
+    ]);
+    expect(renderVulnerabilityTable(reachableReport)).toContain('  yes        1.10.0');
+    expect(renderSummary(reachableReport)).toContain('Reachable:         1');
+  });
+
+  it('says what was searched when no path was found', () => {
+    const report: ScanReport = {
+      ...reachableReport,
+      findings: [
+        {
+          ...finding,
+          usage: usedUsage,
+          reachability: {
+            status: 'NOT_REACHABLE',
+            reachable: false,
+            reason: 'no call path from any endpoint',
+            paths: [],
+            totalPaths: 0,
+            truncated: false,
+            scope,
+          },
+        },
+      ],
+    };
+    expect(renderReachability(report)).toContain(
+      'CVE-2022-42889  org.apache.commons:commons-text@1.9  not reachable (no call path from any endpoint)',
+    );
+    expect(renderReachability(report)).toContain('1 calls could not be resolved — not proof of absence');
+    expect(renderVulnerabilityTable(report)).toContain('  no path    1.10.0');
+  });
+
+  it('says unavailable when the stage did not run', () => {
+    expect(renderReachability(baseReport)).toBe('Reachability: unavailable (SKIPPED — not implemented (Phase 6))');
   });
 });

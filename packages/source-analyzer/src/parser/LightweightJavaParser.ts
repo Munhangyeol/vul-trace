@@ -1,13 +1,16 @@
 import type { SourceLocation } from '@vulntrace/shared';
 import type {
   JavaAnnotation,
+  JavaField,
   JavaFileAnalysis,
   JavaImport,
+  JavaMemberScope,
   JavaMethodInvocation,
   JavaNameReference,
   JavaObjectCreation,
   JavaType,
   JavaVariableDeclaration,
+  SourcePosition,
 } from '../types.js';
 import type { JavaSourceParser } from './JavaSourceParser.js';
 import { tokenizeJava } from './JavaTokenizer.js';
@@ -37,7 +40,28 @@ interface OpenType {
   bodyDepth: number;
   /** Enum bodies start with constants (`A("x"), B;`) that must not be read as methods. */
   inEnumConstants: boolean;
+  /** Token index of the type name. */
+  startIndex: number;
 }
+
+/** Token span of a declaration, used to give pass-2 references their enclosing member. */
+interface TokenSpan {
+  start: number;
+  end: number;
+}
+
+interface TypeSpan extends TokenSpan {
+  type: JavaType;
+  /** Brace depth of the type's member level. */
+  bodyDepth: number;
+}
+
+interface MethodSpan extends TokenSpan {
+  typeQualifiedName: string;
+  methodIndex: number;
+}
+
+const PRIMITIVE_TYPES = new Set(['boolean', 'byte', 'char', 'short', 'int', 'long', 'float', 'double', 'void']);
 
 /**
  * Stage A Java parser (CLAUDE.md §5, §14): a tokenizer plus two passes over the token stream.
@@ -68,10 +92,15 @@ export class LightweightJavaParser implements JavaSourceParser {
     let pendingType: OpenType | undefined;
     let pendingAnnotations: JavaAnnotation[] = [];
     let depth = 0;
+    /** Brace depth before each token (index-aligned with `tokens`). */
+    const depthAt: number[] = new Array<number>(tokens.length).fill(0);
+    const typeSpans: TypeSpan[] = [];
+    const methodSpans: MethodSpan[] = [];
 
     for (let i = 0; i < tokens.length; i++) {
       const token = tokens[i] as JavaToken;
       const top = typeStack[typeStack.length - 1];
+      depthAt[i] = depth;
 
       if (isSymbol(token, '{')) {
         depth += 1;
@@ -84,7 +113,11 @@ export class LightweightJavaParser implements JavaSourceParser {
         continue;
       }
       if (isSymbol(token, '}')) {
-        if (top && top.bodyDepth === depth) typeStack.pop();
+        if (top && top.bodyDepth === depth) {
+          typeStack.pop();
+          top.type.range = { start: top.type.range.start, end: endPosition(token) };
+          typeSpans.push({ type: top.type, bodyDepth: top.bodyDepth, start: top.startIndex, end: i });
+        }
         depth = Math.max(0, depth - 1);
         pendingAnnotations = [];
         continue;
@@ -147,18 +180,23 @@ export class LightweightJavaParser implements JavaSourceParser {
           : packageName
             ? `${packageName}.${nameToken.value}`
             : nameToken.value;
+        const superTypes = readSuperTypes(tokens, nameIndex + 1);
         const type: JavaType = {
           name: nameToken.value,
           qualifiedName,
           kind: typeKind,
           annotations: pendingAnnotations,
           methods: [],
+          fields: [],
+          extendsTypes: superTypes.extendsTypes,
+          implementsTypes: superTypes.implementsTypes,
           location: loc(nameToken),
+          range: { start: startPosition(nameToken), end: endPosition(nameToken) },
         };
         types.push(type);
         excluded.add(nameIndex);
         pendingAnnotations = [];
-        pendingType = { type, bodyDepth: -1, inEnumConstants: typeKind === 'enum' };
+        pendingType = { type, bodyDepth: -1, inEnumConstants: typeKind === 'enum', startIndex: nameIndex };
         i = nameIndex;
         continue;
       }
@@ -170,11 +208,45 @@ export class LightweightJavaParser implements JavaSourceParser {
         !top.inEnumConstants &&
         isMethodDeclaration(tokens, i)
       ) {
-        top.type.methods.push({ name: token.value, annotations: pendingAnnotations, location: loc(token) });
+        const paramsClose = findMatching(tokens, i + 1, '(', ')');
+        const declarationEnd = findDeclarationEnd(tokens, paramsClose + 1);
+        const endToken = tokens[declarationEnd.end] ?? (tokens[tokens.length - 1] as JavaToken);
+        top.type.methods.push({
+          name: token.value,
+          annotations: pendingAnnotations,
+          location: loc(token),
+          isConstructor: token.value === top.type.name,
+          parameters: readParameters(tokens, i + 1, paramsClose).map((p) => ({
+            typeName: p.typeName,
+            name: p.nameToken.value,
+            location: loc(p.nameToken),
+          })),
+          hasBody: declarationEnd.hasBody,
+          range: { start: startPosition(token), end: endPosition(endToken) },
+        });
+        methodSpans.push({
+          typeQualifiedName: top.type.qualifiedName,
+          methodIndex: top.type.methods.length - 1,
+          start: i,
+          end: declarationEnd.end,
+        });
         excluded.add(i);
         pendingAnnotations = [];
       }
     }
+
+    // Unclosed types (malformed input) still get a span reaching the end of the file.
+    for (const open of typeStack) {
+      typeSpans.push({ type: open.type, bodyDepth: open.bodyDepth, start: open.startIndex, end: tokens.length - 1 });
+    }
+
+    /** Innermost method, else innermost type, containing the token at `index`. */
+    const withScope = (index: number): { scope?: JavaMemberScope } => {
+      const method = innermost(methodSpans, index);
+      if (method) return { scope: { typeQualifiedName: method.typeQualifiedName, methodIndex: method.methodIndex } };
+      const type = innermost(typeSpans, index);
+      return type ? { scope: { typeQualifiedName: type.type.qualifiedName } } : {};
+    };
 
     // ---- Pass 2: references -----------------------------------------------------------------
     const objectCreations: JavaObjectCreation[] = [];
@@ -204,7 +276,7 @@ export class LightweightJavaParser implements JavaSourceParser {
       const last = segments[segments.length - 1] as JavaToken;
 
       if (!chained && isKeyword(prev, 'new')) {
-        objectCreations.push({ typeName: name, location: loc(head) });
+        objectCreations.push({ typeName: name, location: loc(head), ...withScope(i) });
       } else if (isSymbol(after, '(')) {
         invocations.push({
           name: last.value,
@@ -212,11 +284,13 @@ export class LightweightJavaParser implements JavaSourceParser {
           chained,
           kind: 'CALL',
           location: loc(last),
+          argumentCount: countArguments(tokens, j),
+          ...withScope(i),
         });
       } else if (isSymbol(after, '::')) {
         const member = tokens[j + 1];
         if (!chained && isKeyword(member, 'new')) {
-          objectCreations.push({ typeName: name, location: loc(head) });
+          objectCreations.push({ typeName: name, location: loc(head), ...withScope(i) });
         } else if (isIdentifier(member)) {
           invocations.push({
             name: member.value,
@@ -224,18 +298,31 @@ export class LightweightJavaParser implements JavaSourceParser {
             chained,
             kind: 'METHOD_REFERENCE',
             location: loc(member),
+            ...withScope(i),
           });
         }
       } else if (!chained) {
         const variableIndex = matchDeclaration(tokens, j);
         const variableToken = variableIndex >= 0 ? tokens[variableIndex] : undefined;
         if (variableToken) {
+          let typeName: string | undefined;
           if (name !== 'var') {
-            variables.push({ typeName: name, name: variableToken.value, location: loc(variableToken) });
+            typeName = name;
           } else if (isKeyword(tokens[variableIndex + 2], 'new')) {
-            const created = readQualifiedName(tokens, variableIndex + 3).name;
-            if (created) {
-              variables.push({ typeName: created, name: variableToken.value, location: loc(variableToken) });
+            typeName = readQualifiedName(tokens, variableIndex + 3).name || undefined;
+          }
+          if (typeName) {
+            const declared: JavaVariableDeclaration = {
+              typeName,
+              name: variableToken.value,
+              location: loc(variableToken),
+              ...withScope(i),
+            };
+            variables.push(declared);
+            const owner = declared.scope?.methodIndex === undefined ? innermost(typeSpans, i) : undefined;
+            if (owner && depthAt[i] === owner.bodyDepth) {
+              const field: JavaField = { typeName, name: declared.name, location: declared.location };
+              owner.type.fields.push(field);
             }
           }
         }
@@ -363,4 +450,162 @@ function matchDeclaration(tokens: readonly JavaToken[], start: number): number {
   if (!isIdentifier(tokens[k])) return -1;
   const terminator = tokens[k + 1];
   return terminator?.kind === 'symbol' && DECLARATION_TERMINATORS.has(terminator.value) ? k : -1;
+}
+
+function startPosition(token: JavaToken): SourcePosition {
+  return { line: token.line, column: token.column };
+}
+
+/** Position of the last character of `token`. */
+function endPosition(token: JavaToken): SourcePosition {
+  const lines = token.value.split(/\r?\n/);
+  if (lines.length === 1) return { line: token.line, column: token.column + Math.max(0, token.value.length - 1) };
+  const lastLine = lines[lines.length - 1] as string;
+  return { line: token.line + lines.length - 1, column: Math.max(1, lastLine.length) };
+}
+
+/** The span with the greatest start that contains `index` (spans nest, so it is the innermost). */
+function innermost<T extends TokenSpan>(spans: readonly T[], index: number): T | undefined {
+  let best: T | undefined;
+  for (const span of spans) {
+    if (span.start <= index && index <= span.end && (!best || span.start > best.start)) best = span;
+  }
+  return best;
+}
+
+/**
+ * After a method's `)`, skips `throws ...` / `default ...` and returns the index of the body's
+ * closing `}` (`hasBody`) or of the terminating `;`.
+ */
+function findDeclarationEnd(tokens: readonly JavaToken[], start: number): { end: number; hasBody: boolean } {
+  for (let k = start; k < tokens.length; k++) {
+    if (isSymbol(tokens[k], '{')) {
+      const close = findMatching(tokens, k, '{', '}');
+      return { end: close < 0 ? tokens.length - 1 : close, hasBody: true };
+    }
+    if (isSymbol(tokens[k], ';')) return { end: k, hasBody: false };
+  }
+  return { end: tokens.length - 1, hasBody: false };
+}
+
+/** Reads `extends A, B<C>` / `implements X` between a type name and its body. */
+function readSuperTypes(
+  tokens: readonly JavaToken[],
+  start: number,
+): { extendsTypes: string[]; implementsTypes: string[] } {
+  const extendsTypes: string[] = [];
+  const implementsTypes: string[] = [];
+  let mode: 'none' | 'extends' | 'implements' = 'none';
+  let angle = 0;
+  let paren = 0;
+  let expectName = false;
+  for (let k = start; k < tokens.length; k++) {
+    const token = tokens[k] as JavaToken;
+    if (angle === 0 && paren === 0 && (isSymbol(token, '{') || isSymbol(token, ';'))) break;
+    if (isSymbol(token, '<')) angle += 1;
+    else if (isSymbol(token, '>')) angle = Math.max(0, angle - 1);
+    else if (isSymbol(token, '(')) paren += 1;
+    else if (isSymbol(token, ')')) paren = Math.max(0, paren - 1);
+    if (angle > 0 || paren > 0 || isSymbol(token, '>') || isSymbol(token, ')')) continue;
+
+    if (isKeyword(token, 'extends')) {
+      mode = 'extends';
+      expectName = true;
+    } else if (isKeyword(token, 'implements')) {
+      mode = 'implements';
+      expectName = true;
+    } else if (isIdentifier(token) && token.value === 'permits') {
+      mode = 'none';
+      expectName = false;
+    } else if (isSymbol(token, ',')) {
+      expectName = mode !== 'none';
+    } else if (expectName && isIdentifier(token)) {
+      const { name, end } = readQualifiedName(tokens, k);
+      (mode === 'extends' ? extendsTypes : implementsTypes).push(name);
+      expectName = false;
+      k = end - 1;
+    }
+  }
+  return { extendsTypes, implementsTypes };
+}
+
+/** Parameters between the `(` at `open` and the `)` at `close`, skipping annotations and `final`. */
+function readParameters(
+  tokens: readonly JavaToken[],
+  open: number,
+  close: number,
+): { typeName: string; nameToken: JavaToken }[] {
+  if (close < 0) return [];
+  const segments: JavaToken[][] = [];
+  let current: JavaToken[] = [];
+  let nesting = 0;
+  for (let k = open + 1; k < close; k++) {
+    const token = tokens[k] as JavaToken;
+    if (isSymbol(token, '(') || isSymbol(token, '<')) nesting += 1;
+    else if (isSymbol(token, ')') || isSymbol(token, '>')) nesting = Math.max(0, nesting - 1);
+    if (nesting === 0 && isSymbol(token, ',')) {
+      segments.push(current);
+      current = [];
+    } else {
+      current.push(token);
+    }
+  }
+  if (current.length > 0) segments.push(current);
+
+  const parameters: { typeName: string; nameToken: JavaToken }[] = [];
+  for (const segment of segments) {
+    const rest = stripParameterModifiers(segment);
+    const first = rest[0];
+    if (!first) continue;
+    const typeName =
+      first.kind === 'keyword' && PRIMITIVE_TYPES.has(first.value) ? first.value : readQualifiedName(rest, 0).name;
+    if (!typeName) continue;
+    let last = rest.length - 1;
+    while (last > 0 && (isSymbol(rest[last], ']') || isSymbol(rest[last], '['))) last -= 1;
+    const nameToken = rest[last];
+    // `Foo this` (receiver parameter) and malformed segments carry no usable name.
+    if (last === 0 || !isIdentifier(nameToken)) continue;
+    parameters.push({ typeName, nameToken });
+  }
+  return parameters;
+}
+
+/** Drops leading `@Annotation(...)` and `final` tokens from a parameter. */
+function stripParameterModifiers(segment: readonly JavaToken[]): JavaToken[] {
+  let k = 0;
+  while (k < segment.length) {
+    if (isKeyword(segment[k], 'final')) {
+      k += 1;
+    } else if (isSymbol(segment[k], '@') && isIdentifier(segment[k + 1])) {
+      k = readQualifiedName(segment, k + 1).end;
+      if (isSymbol(segment[k], '(')) {
+        const close = findMatching(segment, k, '(', ')');
+        k = close < 0 ? segment.length : close + 1;
+      }
+    } else {
+      break;
+    }
+  }
+  return segment.slice(k);
+}
+
+/** Top-level argument count of the call whose `(` is at `open`. */
+function countArguments(tokens: readonly JavaToken[], open: number): number {
+  let nesting = 0;
+  let commas = 0;
+  let empty = true;
+  for (let k = open; k < tokens.length; k++) {
+    const token = tokens[k] as JavaToken;
+    if (isSymbol(token, '(') || isSymbol(token, '{') || isSymbol(token, '[')) {
+      nesting += 1;
+      if (k === open) continue;
+    } else if (isSymbol(token, ')') || isSymbol(token, '}') || isSymbol(token, ']')) {
+      nesting -= 1;
+      if (nesting === 0) return empty ? 0 : commas + 1;
+    } else if (nesting === 1 && isSymbol(token, ',')) {
+      commas += 1;
+    }
+    empty = false;
+  }
+  return empty ? 0 : commas + 1;
 }

@@ -6,3 +6,9 @@ export type { ProjectVulnerabilitiesDto, VulnerabilityFindingDto } from './vulne
 export type { ProjectScanSummaryDto, ProjectSummaryDto } from './summary.js';
 export type { ProjectEndpointsDto, SpringEndpointDto } from './endpoint.js';
 export type { FindingUsageSummaryDto, FindingUsagesDto, SourceUsageDto } from './usage.js';
+export type {
+  CallPathStepDto,
+  FindingReachabilityDto,
+  FindingReachabilitySummaryDto,
+  ReachabilityPathDto,
+} from './reachability.js';

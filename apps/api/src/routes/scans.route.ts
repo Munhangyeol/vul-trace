@@ -65,8 +65,9 @@ export function createScanRoutes(container: Container): FastifyPluginAsync {
 
         await container.scanRepository.save(scanJob);
         await container.findingRepository.saveDependencies(scanJob.id, report.dependencies);
-        await container.findingRepository.saveFindings(scanJob.id, report.findings);
+        // Endpoints first: reachability paths saved with the findings reference them.
         await container.endpointRepository.saveEndpoints(scanJob.id, report.endpoints);
+        await container.findingRepository.saveFindings(scanJob.id, report.findings);
 
         return reply.code(201).send(toScanJobDto(scanJob));
       },

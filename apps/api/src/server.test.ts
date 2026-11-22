@@ -16,6 +16,7 @@ import type {
   ProjectDependency,
   ProjectSource,
   ScanJob,
+  SourceUsage,
   SpringEndpoint,
   VulnerabilityFinding,
 } from '@vulntrace/shared';
@@ -582,6 +583,129 @@ describe('api server', () => {
 
     const summaryRes = await app.inject({ method: 'GET', url: `/api/projects/${project.id}/summary` });
     expect(summaryRes.json()).toMatchObject({ latestScan: { usedVulnerabilities: 1 } });
+  });
+
+  it('exposes reachability through the finding DTO, GET /findings/:id/reachability and the summary', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      payload: { name: 'reach-demo', path: fixturePath('spring-vulnerable-reachable') },
+    });
+    const project = createRes.json() as { id: string };
+
+    const scan: ScanJob = {
+      id: randomUUID(),
+      projectId: project.id,
+      state: 'COMPLETED',
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      stages: [{ stage: 'REACHABILITY', status: 'SUCCEEDED' }],
+      unresolvedDependencies: [],
+      vulnerabilityCoverage: { checked: 1, notChecked: 0, failed: 0 },
+    };
+    await container.scanRepository.save(scan);
+    const handler = 'src/main/java/com/example/demo/TemplateController.java';
+    const sink = { filePath: 'src/main/java/com/example/demo/TemplateService.java', line: 14, column: 60 };
+    const endpoint: SpringEndpoint = {
+      httpMethod: 'POST',
+      path: '/api/templates/render',
+      controllerClass: 'com.example.demo.TemplateController',
+      controllerMethod: 'render',
+      location: { filePath: handler, line: 19, column: 19 },
+      unresolved: [],
+      evidence: {
+        controller: { annotation: '@RestController', location: { filePath: handler, line: 8 } },
+        methodMapping: { annotation: '@PostMapping("/render")', location: { filePath: handler, line: 18 } },
+      },
+    };
+    const usage: SourceUsage = {
+      kind: 'METHOD_CALL',
+      symbol: 'org.apache.commons.text.StringSubstitutor#createInterpolator',
+      dependencyPurl: 'pkg:maven/org.apache.commons/commons-text@1.9',
+      sourceSet: 'MAIN',
+      vulnerableApi: true,
+      evidence: { location: sink, snippet: 'StringSubstitutor.createInterpolator();' },
+    };
+    const finding: VulnerabilityFinding = {
+      vulnerability: {
+        id: 'GHSA-599f-7c49-w659',
+        aliases: ['CVE-2022-42889'],
+        summary: 'Arbitrary code execution in Apache Commons Text',
+        severity: 'CRITICAL',
+        severitySource: 'CVSS_V3',
+        modified: '2024-02-16T08:09:06.872Z',
+        references: [],
+      },
+      package: { ecosystem: 'Maven', name: 'org.apache.commons:commons-text', version: '1.9', purl: usage.dependencyPurl },
+      fixedVersions: ['1.10.0'],
+      evidence: { provider: 'OSV', queriedAt: '2026-11-22T00:00:00.000Z', affectedRanges: [], affectedVersions: [] },
+      usage: {
+        used: true,
+        vulnerableApi: 'USED',
+        packageMapping: { packages: ['org.apache.commons.text'], basis: 'CURATED' },
+        vulnerableApis: [{ type: 'org.apache.commons.text.StringSubstitutor', method: 'createInterpolator' }],
+        usages: [usage],
+      },
+      reachability: {
+        status: 'REACHABLE',
+        reachable: true,
+        totalPaths: 1,
+        truncated: false,
+        scope: { endpointCount: 2, visitedMethodCount: 3, unresolvedCallCount: 0, unsupported: [] },
+        paths: [
+          {
+            endpoint,
+            usage,
+            sinkAttribution: 'METHOD',
+            steps: [
+              {
+                method: { className: endpoint.controllerClass, methodName: 'render', location: endpoint.location },
+                callSite: { filePath: handler, line: 20, column: 32 },
+                callSnippet: 'return templateService.render(template);',
+              },
+              {
+                method: { className: 'com.example.demo.TemplateService', methodName: 'render' },
+                callSite: sink,
+                callSnippet: 'StringSubstitutor interpolator = StringSubstitutor.createInterpolator();',
+                basis: 'DIRECT',
+              },
+            ],
+          },
+        ],
+      },
+    };
+    await container.endpointRepository.saveEndpoints(scan.id, [endpoint]);
+    await container.findingRepository.saveFindings(scan.id, [finding]);
+
+    const listRes = await app.inject({ method: 'GET', url: `/api/projects/${project.id}/vulnerabilities` });
+    const body = listRes.json() as { findings: Array<{ findingId: string; reachability: unknown }> };
+    expect(body.findings[0]?.reachability).toMatchObject({ status: 'REACHABLE', reachable: true, pathCount: 1 });
+
+    const findingId = body.findings[0]!.findingId;
+    const res = await app.inject({ method: 'GET', url: `/api/findings/${findingId}/reachability` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      findingId,
+      analyzed: true,
+      summary: { status: 'REACHABLE' },
+      paths: [
+        {
+          endpoint: { httpMethod: 'POST', path: '/api/templates/render' },
+          sinkAttribution: 'METHOD',
+          usage: { filePath: sink.filePath, line: 14 },
+          steps: [
+            { className: 'com.example.demo.TemplateController', methodName: 'render', callSite: { line: 20 } },
+            { className: 'com.example.demo.TemplateService', methodName: 'render', basis: 'DIRECT' },
+          ],
+        },
+      ],
+    });
+
+    const summaryRes = await app.inject({ method: 'GET', url: `/api/projects/${project.id}/summary` });
+    expect(summaryRes.json()).toMatchObject({ latestScan: { reachableVulnerabilities: 1 } });
+
+    const missing = await app.inject({ method: 'GET', url: '/api/findings/does-not-exist/reachability' });
+    expect(missing.statusCode).toBe(404);
   });
 
   it('GET /api/findings/:findingId/usages returns 404 for an unknown finding', async () => {

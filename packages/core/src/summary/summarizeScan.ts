@@ -26,6 +26,11 @@ export interface ScanSummary {
    * `null` when source usage was not analyzed for some finding — unknown, not zero.
    */
   usedVulnerabilities: number | null;
+  /**
+   * Distinct vulnerabilities with at least one finding reachable from a Spring endpoint (Phase 6).
+   * `null` when reachability was not analyzed for some finding — unknown, not zero.
+   */
+  reachableVulnerabilities: number | null;
   bySeverity: Record<Severity, number>;
   coverage: VulnerabilityCoverage;
 }
@@ -57,6 +62,11 @@ export function summarizeScan(input: ScanSummaryInput): ScanSummary {
     ? new Set(input.findings.filter((f) => f.usage?.used).map((f) => f.vulnerability.id)).size
     : null;
 
+  const reachabilityAnalyzed = input.findings.every((f) => f.reachability !== undefined);
+  const reachableVulnerabilities = reachabilityAnalyzed
+    ? new Set(input.findings.filter((f) => f.reachability?.reachable).map((f) => f.vulnerability.id)).size
+    : null;
+
   return {
     dependencies: input.dependencies.length,
     unresolved: input.unresolvedDependencies.length,
@@ -64,6 +74,7 @@ export function summarizeScan(input: ScanSummaryInput): ScanSummary {
     findings: input.findings.length,
     vulnerableDependencies,
     usedVulnerabilities,
+    reachableVulnerabilities,
     bySeverity,
     coverage: input.vulnerabilityCoverage,
   };

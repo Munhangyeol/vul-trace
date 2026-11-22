@@ -1,4 +1,10 @@
-import type { FindingUsage, FindingUsageSummaryDto, FindingUsagesDto, SourceUsageDto } from '@vulntrace/shared';
+import type {
+  FindingUsage,
+  FindingUsageSummaryDto,
+  FindingUsagesDto,
+  SourceUsage,
+  SourceUsageDto,
+} from '@vulntrace/shared';
 import type { StoredFinding } from '@vulntrace/core';
 
 export type { FindingUsageSummaryDto, FindingUsagesDto, SourceUsageDto };
@@ -22,17 +28,19 @@ export function toFindingUsagesDto(stored: StoredFinding): FindingUsagesDto {
     findingId: stored.id,
     analyzed: usage !== undefined,
     summary: toFindingUsageSummaryDto(usage),
-    usages: (usage?.usages ?? []).map(
-      (u): SourceUsageDto => ({
-        kind: u.kind,
-        symbol: u.symbol,
-        sourceSet: u.sourceSet,
-        vulnerableApi: u.vulnerableApi,
-        filePath: u.evidence.location.filePath,
-        line: u.evidence.location.line,
-        ...(u.evidence.location.column !== undefined ? { column: u.evidence.location.column } : {}),
-        snippet: u.evidence.snippet,
-      }),
-    ),
+    usages: (usage?.usages ?? []).map(toSourceUsageDto),
+  };
+}
+
+export function toSourceUsageDto(u: SourceUsage): SourceUsageDto {
+  return {
+    kind: u.kind,
+    symbol: u.symbol,
+    sourceSet: u.sourceSet,
+    vulnerableApi: u.vulnerableApi,
+    filePath: u.evidence.location.filePath,
+    line: u.evidence.location.line,
+    ...(u.evidence.location.column !== undefined ? { column: u.evidence.location.column } : {}),
+    snippet: u.evidence.snippet,
   };
 }

@@ -124,22 +124,26 @@ model Vulnerability {
 }
 
 model ProjectVulnerability {
-  id                  String   @id @default(uuid())
-  scanId              String   @map("scan_id")
-  projectDependencyId String   @map("project_dependency_id")
-  vulnerabilityId     String   @map("vulnerability_id")
-  fixedVersions       String[] @map("fixed_versions")
-  provider            String   @default("OSV")
-  queriedAt           DateTime @map("queried_at")
+  id                   String   @id @default(uuid())
+  scanId               String   @map("scan_id")
+  projectDependencyId  String   @map("project_dependency_id")
+  vulnerabilityId      String   @map("vulnerability_id")
+  fixedVersions        String[] @map("fixed_versions")
+  provider             String   @default("OSV")
+  queriedAt            DateTime @map("queried_at")
   /// OSV affected[].ranges[] verbatim — the evidence for "why affected" (CLAUDE.md §6.2).
-  affectedRanges      Json     @default("[]") @map("affected_ranges")
-  affectedVersions    String[] @default([]) @map("affected_versions")
+  affectedRanges       Json     @default("[]") @map("affected_ranges")
+  affectedVersions     String[] @default([]) @map("affected_versions")
   /// Phase 4: MAIN sources use the dependency. null = source usage not analyzed (not the same as false).
-  used                Boolean?
+  used                 Boolean?
   /// Phase 4: USED | NOT_DETECTED | NO_API_INFO. null = not analyzed.
-  vulnerableApiStatus String?  @map("vulnerable_api_status")
+  vulnerableApiStatus  String?  @map("vulnerable_api_status")
   /// Phase 4 basis for the conclusion: { packageMapping, vulnerableApis }. Evidence rows live in source_usages.
-  usageAnalysis       Json?    @map("usage_analysis")
+  usageAnalysis        Json?    @map("usage_analysis")
+  /// Phase 6: REACHABLE | NOT_REACHABLE | NO_VULNERABLE_API_USAGE | NO_API_INFO. null = not analyzed.
+  reachabilityStatus   String?  @map("reachability_status")
+  /// Phase 6 basis for the status: { reason?, totalPaths, truncated, scope }. Paths live in reachability_paths.
+  reachabilityAnalysis Json?    @map("reachability_analysis")
 
   scan              ScanJob            @relation(fields: [scanId], references: [id], onDelete: Cascade)
   projectDependency ProjectDependency  @relation(fields: [projectDependencyId], references: [id], onDelete: Cascade)
@@ -235,11 +239,18 @@ model ReachabilityPath {
   endpointId             String @map("endpoint_id")
   /// Ordered CallPathStep[] from endpoint to vulnerable usage.
   steps                  Json
+  /// The vulnerable SourceUsage the path ends at.
+  usage                  Json   @default("{}")
+  /// METHOD | INITIALIZER — how the usage was placed on the last step.
+  sinkAttribution        String @default("METHOD") @map("sink_attribution")
+  /// Order of the path within its finding (shortest first).
+  position               Int    @default(0)
 
   scan                 ScanJob              @relation(fields: [scanId], references: [id], onDelete: Cascade)
   projectVulnerability ProjectVulnerability @relation(fields: [projectVulnerabilityId], references: [id], onDelete: Cascade)
   endpoint             SpringEndpoint       @relation(fields: [endpointId], references: [id], onDelete: Cascade)
 
+  @@index([projectVulnerabilityId])
   @@map("reachability_paths")
 }
 

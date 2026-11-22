@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { Container } from '../container.js';
 import { toFindingUsagesDto } from '../dto/usage.dto.js';
 import { toVulnerabilityFindingDto } from '../dto/vulnerability.dto.js';
-import { replyNotImplemented } from './notImplemented.js';
+import { toFindingReachabilityDto } from '../dto/reachability.dto.js';
 
 export function createFindingRoutes(container: Container): FastifyPluginAsync {
   return async (app) => {
@@ -26,8 +26,15 @@ export function createFindingRoutes(container: Container): FastifyPluginAsync {
         return toFindingUsagesDto(stored);
       },
     );
-    app.get('/findings/:findingId/reachability', async (_req, reply) =>
-      replyNotImplemented(reply, 'GET /findings/:findingId/reachability'),
+    app.get<{ Params: { findingId: string } }>(
+      '/findings/:findingId/reachability',
+      async (request, reply) => {
+        const stored = await container.findingRepository.findFindingById(request.params.findingId);
+        if (!stored) {
+          return reply.code(404).send({ error: 'NOT_FOUND', message: 'finding not found' });
+        }
+        return toFindingReachabilityDto(stored);
+      },
     );
   };
 }
