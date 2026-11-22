@@ -4,7 +4,7 @@
 기준 문서: `CLAUDE.md` §5, §6.2, §7 Phase 6, §14, §16, §17, §19 (본 계획보다 우선함)
 상위 문서: `overview-plan.md`
 선행 문서: `phase-4-source-usage.md`, `phase-5-spring-endpoints.md`
-상태: **구현 완료, 브라우저 화면 확인 남음** (아래 VERIFY)
+상태: **완료** — 커밋 `9daf1f7` (`feat/phase6-reachability`), 아래 VERIFY
 
 ## PLAN
 
@@ -126,7 +126,7 @@ spring-safe-app             → commons-text finding 없음
 
 ## VERIFY (2026-11-22)
 
-브랜치: `feat/phase6-reachability` (커밋 전)
+브랜치: `feat/phase6-reachability`, 커밋 `9daf1f7 feat: implement Phase 6 reachability analysis`
 
 ### Phase 6 Definition of Done
 
@@ -136,10 +136,10 @@ spring-safe-app             → commons-text finding 없음
 | `CallGraphBuilder` / `ReachabilityAnalyzer` (D3~D12) | ✅ 합성 소스 단위 테스트 10개 (필드 주입, 지역 변수·매개변수, 정적 호출, 생성자, 다른 패키지 import, 인터페이스 → 구현, 오버로드, 순환, 깊이 제한, 테스트 소스 제외, 필드 초기화식 sink, 미해석 호출 수) |
 | `REACHABILITY` 단계, `[REACHABILITY]` 로그, SKIPPED/FAILED/PARTIAL | ✅ core 테스트 3개 추가 |
 | `summarizeScan.reachableVulnerabilities` (분석 안 됨 = `null`) | ✅ |
-| 마이그레이션 `phase6_reachability`, 경로 저장·조회 | ✅ 실제 PostgreSQL에 `prisma migrate deploy` 적용, `migrate diff`(DB ↔ 스키마) 차이 없음. ⚠️ Prisma 저장소로 경로를 저장·조회하는 스캔은 아직 안 돌려 봄 |
-| `GET /api/findings/:id/reachability`, 목록 DTO `reachability`, summary `reachableVulnerabilities` | ✅ in-memory 저장소로 API 테스트. Prisma 저장소 경로는 DB가 없어 미확인 |
+| 마이그레이션 `phase6_reachability`, 경로 저장·조회 | ✅ 실제 PostgreSQL에 `prisma migrate deploy` 적용, `migrate diff`(DB ↔ 스키마) 차이 없음. API 스캔으로 저장한 경로를 다시 읽어 픽스처 경로와 일치 확인 |
+| `GET /api/findings/:id/reachability`, 목록 DTO `reachability`, summary `reachableVulnerabilities` | ✅ in-memory 저장소 API 테스트 + 실제 DB에서 `spring-vulnerable-reachable` 스캔 후 응답 확인 (`REACHABLE`, 경로 1개, 단계별 호출 위치) |
 | CLI `Reachable` 열·요약 줄·`report` 경로 섹션 | ✅ 렌더러 테스트 + 픽스처 실행 |
-| Web 목록 열·상세 경로 섹션·대시보드 카드 | ⚠️ 타입 검사·포맷터 테스트 통과. **브라우저 화면 확인은 못 함** (API가 DB 필요) |
+| Web 목록 열·상세 경로 섹션·대시보드 카드 | ✅ 브라우저 확인: 대시보드 `Reachable Vulnerabilities 1`, 목록 `Reachable: Yes`, 상세 `Reachability path`에 `POST /api/templates/render` → `TemplateController.render` (`:20`) → `TemplateService.render` (`:14`), 콘솔 오류 없음 |
 | `pnpm typecheck` / `test` / `lint` / `build` | ✅ |
 
 ### 확인 결과
@@ -184,5 +184,4 @@ java-sec-code의 REACHABLE 10건(fastjson 1, log4j-core 1, snakeyaml 8)의 경�
 
 ## 다음 작업
 
-1. API 서버로 `spring-vulnerable-reachable`을 스캔 → Prisma 저장소의 경로 저장·조회와 웹 목록·상세·대시보드 화면 확인
-2. 그다음 Phase 7(위험도 우선순위)
+Phase 7(위험도 우선순위)

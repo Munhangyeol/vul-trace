@@ -44,7 +44,7 @@ vulnerable API reachable→ 엔드포인트 → ... → 호출 위치 콜 경로
 | `packages/source-analyzer` | 토크나이저 기반 경량 Java 파서(`JavaTokenizer`/`LightweightJavaParser`), `JavaFileScanner`(main/test 구분, 심볼릭 링크·숨김 폴더 제외, 파일 수·크기 상한), 패키지 매핑표(`artifactPackages`)와 groupId 추정, 취약 API 목록(`vulnerableApis`), `UsageMatcher`, `assessFindingUsage` 구현 완료 |
 | `packages/repository-source` | `RepositorySource` 인터페이스, `LocalPathSource`, `GitRepositorySource`(https://github.com만 허용, 얕은 clone, 서브모듈·LFS·심볼릭 링크·hook·자격 증명 끔, 크기 상한, commit SHA 기록), URL·ref 검증 |
 | `packages/spring-analyzer` | `SpringEndpointAnalyzer` — 어노테이션 인자 파싱(토크나이저 재사용), import 기반 Spring 어노테이션 판별, 클래스+메서드 경로 결합, HTTP 메서드 합집합/`ANY`, 계산 못 한 값은 `unresolved`, 어노테이션 원문·위치 증거 구현 완료 |
-| `packages/reachability` | `TypeIndex`(Java 이름 해석, 상·하위 타입), `CallGraphBuilder`(필드·매개변수·지역 변수·정적 호출·생성자, 인터페이스 → 프로젝트 구현 CHA, 오버로드 표시, 미해석 호출 기록), `ReachabilityAnalyzer`(엔드포인트별 BFS, 가장 짧은 경로, 단계별 호출 위치 증거, 분석 범위 표기) 구현 완료 (Phase 6, 브라우저 확인 남음) |
+| `packages/reachability` | `TypeIndex`(Java 이름 해석, 상·하위 타입), `CallGraphBuilder`(필드·매개변수·지역 변수·정적 호출·생성자, 인터페이스 → 프로젝트 구현 CHA, 오버로드 표시, 미해석 호출 기록), `ReachabilityAnalyzer`(엔드포인트별 BFS, 가장 짧은 경로, 단계별 호출 위치 증거, 분석 범위 표기) 구현 완료 (Phase 6) |
 | `packages/risk` | 인터페이스 + `NotImplementedError` 스텁 (Phase 7 예정) |
 | `packages/core` | `RepositoryScanRunner`가 저장소 가져오기(`REPOSITORY_FETCH`, GIT만) → `ScanOrchestrator` → 임시 폴더 삭제를 묶고, clone 경로를 저장소 기준 상대 경로로 바꿈. `ScanOrchestrator`가 PROJECT_DETECTION → DEPENDENCY → DEPENDENCY_TREE → SBOM → VULNERABILITY → SOURCE_USAGE → SPRING_ENDPOINT까지 연결 (`[SOURCE]`/`[SPRING]` 로그, 실패 시 PARTIAL). `summarizeScan`(`usedVulnerabilities` 포함)/`compareFindings`/`pickDisplayId`를 CLI·API 공용 집계·정렬 로직으로 추가 |
 | `apps/cli` | `scan`(요약+취약점 표)/`report`(요약+의존성+취약점+미확정, `--json` 지원, 소스 사용 증거 섹션)/`dependencies`/`vulnerabilities` 구현 완료. `endpoints` 명령과 요약의 `Endpoints:` 줄 추가(Phase 5). 취약점 표에 `Used`/`Vuln API` 열 (`--allow-maven`, `--skip-vulnerabilities`, `--sbom`). 모든 명령이 로컬 경로 또는 GitHub URL(`--ref`)을 받음 |
@@ -54,9 +54,9 @@ vulnerable API reachable→ 엔드포인트 → ... → 호출 위치 콜 경로
 | `fixtures/` | Spring 픽스처 4종 (`commons-text:1.9`, CVE-2022-42889 기준). `spring-vulnerable-used`에 pom 파싱 경로 검증용 `guava`/`jackson-databind`/`commons-io` 추가 |
 | 품질 도구 | ESLint, Prettier, Vitest, husky + commitlint |
 
-**Phase 6 (도달 가능성 분석) 구현** — 상세 계획·검증 `phase-6-reachability.md` (2026-11-22 픽스처 3종 + java-sec-code 대조. 실제 DB 마이그레이션 적용 확인, API 스캔 저장과 웹 화면 확인은 남음)
+**Phase 6 (도달 가능성 분석) 완료** — 커밋 `9daf1f7 feat: implement Phase 6 reachability analysis`, 상세 계획 `phase-6-reachability.md` (2026-11-22 픽스처 3종 + 실제 DB + 브라우저 + java-sec-code 대조)
 
-**다음 작업: Phase 6 API 스캔·브라우저 확인 → Phase 7 — 위험도 우선순위**
+**다음 작업: Phase 7 — 위험도 우선순위**
 
 ---
 
@@ -70,7 +70,7 @@ Phase 3  CLI 리포트 + React 대시보드 (DB 연동) ✅ 완료
 Phase 4  Java 소스 사용 분석                ✅ 완료, 여기까지 MVP 1 (§23)
 (MVP 1 이후) GitHub 저장소 입력             ✅ 완료 — 로컬 경로 외에 GitHub URL로 스캔
 Phase 5  Spring 엔드포인트 분석             ✅ 완료
-Phase 6  도달성(Reachability) 분석          🔶 구현 완료, 브라우저 확인 남음
+Phase 6  도달성(Reachability) 분석          ✅ 완료
 Phase 7  위험도 우선순위화                  ◀ 다음
 Phase 8  조치(Remediation) 안내
 (선택)   Stage B Java Analyzer Adapter / LLM 설명 생성
